@@ -37,9 +37,9 @@ func Open(cfg *config.Config) *gorm.DB {
 
 func Migrate(conn *gorm.DB) error {
 	return conn.AutoMigrate(
-		&models.Family{},
+		&models.Team{},
 		&models.User{},
-		&models.UserFamily{},
+		&models.TeamMember{},
 		&models.Token{},
 		&models.Invite{},
 		&models.CalendarEvent{},

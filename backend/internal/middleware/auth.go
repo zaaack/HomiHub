@@ -19,7 +19,7 @@ const (
 
 type Claims struct {
 	UserID   string `json:"sub"`
-	FamilyID string `json:"fam"`
+	TeamID string `json:"fam"`
 	Role     string `json:"role"`
 	Kind     string `json:"kind"`
 	jwt.RegisteredClaims
@@ -39,11 +39,11 @@ func ClaimsOf(c *gin.Context) *Claims {
 func DB(c *gin.Context) *gorm.DB {
 	cl := ClaimsOf(c)
 	base := c.MustGet(CtxDB).(*gorm.DB)
-	return base.Session(&gorm.Session{NewDB: true}).Where("family_id = ?", cl.FamilyID)
+	return base.Session(&gorm.Session{NewDB: true}).Where("team_id = ?", cl.TeamID)
 }
 
-func ScopedDB(base *gorm.DB, familyID string) *gorm.DB {
-	return base.Session(&gorm.Session{NewDB: true}).Where("family_id = ?", familyID)
+func ScopedDB(base *gorm.DB, teamID string) *gorm.DB {
+	return base.Session(&gorm.Session{NewDB: true}).Where("team_id = ?", teamID)
 }
 
 func Auth(base *gorm.DB, secret string) gin.HandlerFunc {

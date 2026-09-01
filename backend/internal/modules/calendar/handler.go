@@ -73,8 +73,8 @@ func normalize(input *eventInput) (time.Time, time.Time, bool) {
 			return time.Time{}, time.Time{}, false
 		}
 	}
-	if input.Visibility < models.VisibilityPrivate || input.Visibility > models.VisibilityFamily {
-		input.Visibility = models.VisibilityFamily
+	if input.Visibility < models.VisibilityPrivate || input.Visibility > models.VisibilityTeam {
+		input.Visibility = models.VisibilityTeam
 	}
 	return start, end, true
 }
@@ -107,7 +107,7 @@ func (h *Handler) list(c *gin.Context) {
 	var evs []models.CalendarEvent
 	if err := middleware.DB(c).Where(
 		"visibility = ? OR (visibility = ? AND user_id = ?) OR visibility = ?",
-		models.VisibilityFamily, models.VisibilityPrivate, cl.UserID, models.VisibilityBusy,
+		models.VisibilityTeam, models.VisibilityPrivate, cl.UserID, models.VisibilityBusy,
 	).Find(&evs).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
 		return
@@ -238,7 +238,7 @@ func (h *Handler) create(c *gin.Context) {
 	cl := middleware.ClaimsOf(c)
 	ev := models.CalendarEvent{
 		ID:         uuid.Must(uuid.NewV7()).String(),
-		FamilyID:   cl.FamilyID,
+		TeamID:   cl.TeamID,
 		UserID:     cl.UserID,
 		UID:        uuid.Must(uuid.NewV7()).String(),
 		Title:      in.Title,

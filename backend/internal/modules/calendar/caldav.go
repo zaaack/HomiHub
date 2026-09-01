@@ -27,7 +27,7 @@ import (
 
 const (
 	calSelf   = "self"
-	calFamily = "family"
+	calTeam = "team"
 )
 
 var errNotFound = fs.ErrNotExist
@@ -49,7 +49,7 @@ func calNameFromPath(p string) string {
 }
 
 type DavSession struct {
-	Family *models.Family
+	Team *models.Team
 	Email  string
 	User   *models.User
 }
@@ -87,9 +87,9 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 			SupportedComponentSet: []string{ical.CompEvent},
 		},
 		{
-			Path:                  calendarPath(s.Email, calFamily),
-			Name:                  s.Family.Name,
-			Description:           s.Family.Name + " 的共享日历",
+			Path:                  calendarPath(s.Email, calTeam),
+			Name:                  s.Team.Name,
+			Description:           s.Team.Name + " 的共享日历",
 			SupportedComponentSet: []string{ical.CompEvent},
 		},
 	}, nil
@@ -101,18 +101,18 @@ func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calenda
 	if cal == calSelf {
 		return &caldav.Calendar{Path: p, Name: "我的", Description: "我的私人日历", SupportedComponentSet: []string{ical.CompEvent}}, nil
 	}
-	if cal == calFamily {
-		return &caldav.Calendar{Path: p, Name: s.Family.Name, Description: s.Family.Name + " 的共享日历", SupportedComponentSet: []string{ical.CompEvent}}, nil
+	if cal == calTeam {
+		return &caldav.Calendar{Path: p, Name: s.Team.Name, Description: s.Team.Name + " 的共享日历", SupportedComponentSet: []string{ical.CompEvent}}, nil
 	}
 	return nil, errNotFound
 }
 
-// familyEvents returns the events visible in a calendar:
+// teamEvents returns the events visible in a calendar:
 //   - self:   the member's Private events + their dated personal todos
 //   - family: events with visibility Family or Busy
-func (b *davBackend) familyEvents(ctx context.Context, cal string) ([]models.CalendarEvent, error) {
+func (b *davBackend) teamEvents(ctx context.Context, cal string) ([]models.CalendarEvent, error) {
 	s := b.session(ctx)
-	db := middleware.ScopedDB(b.app.DB, s.Family.ID)
+	db := middleware.ScopedDB(b.app.DB, s.Team.ID)
 	var evs []models.CalendarEvent
 	switch {
 	case cal == calSelf:
@@ -135,8 +135,8 @@ func (b *davBackend) familyEvents(ctx context.Context, cal string) ([]models.Cal
 				})
 			}
 		}
-	case cal == calFamily:
-		if err := db.Where("visibility IN ?", []int{models.VisibilityFamily, models.VisibilityBusy}).
+	case cal == calTeam:
+		if err := db.Where("visibility IN ?", []int{models.VisibilityTeam, models.VisibilityBusy}).
 			Order("starts_at").Find(&evs).Error; err != nil {
 			return nil, err
 		}
@@ -159,12 +159,12 @@ func eventEtag(ev *models.CalendarEvent) string {
 func (b *davBackend) toObject(ctx context.Context, ev *models.CalendarEvent, cal string) (*caldav.CalendarObject, error) {
 	s := b.session(ctx)
 	masked := *ev
-	if cal == calFamily && ev.Visibility == models.VisibilityBusy && ev.UserID != s.User.ID {
+	if cal == calTeam && ev.Visibility == models.VisibilityBusy && ev.UserID != s.User.ID {
 		masked.Title = "忙碌"
 		masked.Location = ""
 		masked.Description = ""
 	}
-	ics := BuildCalendar(s.Family.Name, []models.CalendarEvent{masked})
+	ics := BuildCalendar(s.Team.Name, []models.CalendarEvent{masked})
 	return &caldav.CalendarObject{
 		Path:          calendarPath(s.Email, cal) + ev.UID + ".ics",
 		ModTime:       ev.UpdatedAt,
@@ -179,7 +179,7 @@ func (b *davBackend) GetCalendarObject(ctx context.Context, p string, req *calda
 	if cal == "" {
 		return nil, errNotFound
 	}
-	evs, err := b.familyEvents(ctx, cal)
+	evs, err := b.teamEvents(ctx, cal)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func (b *davBackend) ListCalendarObjects(ctx context.Context, p string, req *cal
 	if cal == "" {
 		return nil, nil
 	}
-	evs, err := b.familyEvents(ctx, cal)
+	evs, err := b.teamEvents(ctx, cal)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +232,7 @@ func (b *davBackend) QueryCalendarObjects(ctx context.Context, p string, query *
 	if cal == "" {
 		return nil, nil
 	}
-	evs, err := b.familyEvents(ctx, cal)
+	evs, err := b.teamEvents(ctx, cal)
 	if err != nil {
 		return nil, err
 	}
@@ -279,12 +279,12 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 		return nil, errors.New("无效的 iCalendar 数据")
 	}
 	pe := parsed[0]
-	vis := models.VisibilityFamily
+	vis := models.VisibilityTeam
 	if calName == calSelf {
 		vis = models.VisibilityPrivate
 	}
 	var ev models.CalendarEvent
-	q := middleware.ScopedDB(b.app.DB, s.Family.ID).Where("uid = ?", pe.UID)
+	q := middleware.ScopedDB(b.app.DB, s.Team.ID).Where("uid = ?", pe.UID)
 	if pe.RecurrenceID != nil {
 		q = q.Where("recurrence_id IS NOT NULL AND recurrence_id = ?", pe.RecurrenceID)
 	} else {
@@ -302,13 +302,13 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 		ev.RecurrenceID = pe.RecurrenceID
 		ev.Visibility = vis
 		ev.UpdatedAt = time.Now()
-		if err := middleware.ScopedDB(b.app.DB, s.Family.ID).Save(&ev).Error; err != nil {
+		if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Save(&ev).Error; err != nil {
 			return nil, fmt.Errorf("caldav save: %w", err)
 		}
 	} else {
 		ev = models.CalendarEvent{
 			ID:           uuid.Must(uuid.NewV7()).String(),
-			FamilyID:     s.Family.ID,
+			TeamID:     s.Team.ID,
 			UserID:       s.User.ID,
 			UID:          pe.UID,
 			Title:        pe.Title,
@@ -322,7 +322,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 			RecurrenceID: pe.RecurrenceID,
 			Visibility:   vis,
 		}
-		if err := middleware.ScopedDB(b.app.DB, s.Family.ID).Create(&ev).Error; err != nil {
+		if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Create(&ev).Error; err != nil {
 			return nil, fmt.Errorf("caldav create: %w", err)
 		}
 	}
@@ -334,7 +334,7 @@ func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
 	if cal == "" {
 		return nil
 	}
-	evs, err := b.familyEvents(ctx, cal)
+	evs, err := b.teamEvents(ctx, cal)
 	if err != nil {
 		return err
 	}
@@ -349,7 +349,7 @@ func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
 	if !found {
 		return nil
 	}
-	return middleware.ScopedDB(b.app.DB, b.session(ctx).Family.ID).
+	return middleware.ScopedDB(b.app.DB, b.session(ctx).Team.ID).
 		Where("uid = ?", uid).Delete(&models.CalendarEvent{}).Error
 }
 
@@ -367,7 +367,7 @@ func (h *Handler) davAuth() gin.HandlerFunc {
 			httpx.UnauthorizedT(c, "calendar_auth_required")
 			return
 		}
-		var fam models.Family
+		var fam models.Team
 		tokenOK := h.app.DB.Where("calendar_token = ?", pass).First(&fam).Error == nil
 		if !tokenOK {
 			var u models.User
@@ -377,7 +377,7 @@ func (h *Handler) davAuth() gin.HandlerFunc {
 				httpx.UnauthorizedT(c, "calendar_auth_required")
 				return
 			}
-			if err := h.app.DB.Where("id = ?", u.FamilyID).First(&fam).Error; err != nil {
+			if err := h.app.DB.Where("id = ?", u.TeamID).First(&fam).Error; err != nil {
 				c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
 				httpx.UnauthorizedT(c, "calendar_auth_required")
 				return
@@ -389,14 +389,14 @@ func (h *Handler) davAuth() gin.HandlerFunc {
 			httpx.UnauthorizedT(c, "calendar_auth_required")
 			return
 		}
-		var uf models.UserFamily
-		if err := h.app.DB.Where("user_id = ? AND family_id = ?", user.ID, fam.ID).First(&uf).Error; err != nil {
+		var uf models.TeamMember
+		if err := h.app.DB.Where("user_id = ? AND team_id = ?", user.ID, fam.ID).First(&uf).Error; err != nil {
 			c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
 			httpx.UnauthorizedT(c, "calendar_auth_required")
 			return
 		}
 		user.Role = uf.Role
-		ctx := context.WithValue(c.Request.Context(), davKey{}, &DavSession{Family: &fam, Email: email, User: &user})
+		ctx := context.WithValue(c.Request.Context(), davKey{}, &DavSession{Team: &fam, Email: email, User: &user})
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}

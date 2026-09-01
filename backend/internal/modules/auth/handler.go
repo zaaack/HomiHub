@@ -34,7 +34,7 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/auth/login", h.login)
 	g.GET("/auth/me", auth, h.me)
 	g.GET("/auth/families", auth, h.listFamilies)
-	g.POST("/auth/switch-family", auth, h.switchFamily)
+	g.POST("/auth/switch-team", auth, h.switchTeam)
 	g.PATCH("/auth/profile", auth, h.updateProfile)
 	g.POST("/auth/logout", auth, h.logout)
 }
@@ -42,7 +42,7 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 type loginResp struct {
 	Token  string        `json:"token"`
 	User   models.User   `json:"user"`
-	Family models.Family `json:"family"`
+		Team  models.Team `json:"team"`
 }
 
 // LoginResp is the shared login/join/switch response shape, exported for
@@ -69,7 +69,7 @@ type registerInput struct {
 	Name       string `json:"name"`
 	Email      string `json:"email"`
 	Password   string `json:"password"`
-	FamilyName string `json:"familyName"`
+	TeamName string `json:"teamName"`
 }
 
 func (h *Handler) register(c *gin.Context) {
@@ -79,7 +79,7 @@ func (h *Handler) register(c *gin.Context) {
 	}
 	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
 	in.Name = strings.TrimSpace(in.Name)
-	in.FamilyName = strings.TrimSpace(in.FamilyName)
+	in.TeamName = strings.TrimSpace(in.TeamName)
 	if in.Name == "" || in.Email == "" || !passwordStrong(in.Password) {
 		httpx.BadRequestT(c, "bad_request")
 		return
@@ -89,19 +89,19 @@ func (h *Handler) register(c *gin.Context) {
 		httpx.ErrT(c, 500, "internal_error")
 		return
 	}
-	famName := in.FamilyName
+	famName := in.TeamName
 	if famName == "" {
 		famName = in.Name + " 的空间"
 	}
 	err = h.app.DB.Transaction(func(tx *gorm.DB) error {
-		fam := models.Family{
+		fam := models.Team{
 			ID:            uuid.Must(uuid.NewV7()).String(),
 			Name:          famName,
 			CalendarToken: middleware.RandomToken(16),
 		}
 		user := models.User{
 			ID:           uuid.Must(uuid.NewV7()).String(),
-			FamilyID:     fam.ID,
+			TeamID:     fam.ID,
 			Email:        in.Email,
 			PasswordHash: string(hash),
 			Name:         in.Name,
@@ -114,7 +114,7 @@ func (h *Handler) register(c *gin.Context) {
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}
-		return tx.Create(&models.UserFamily{UserID: user.ID, FamilyID: fam.ID, Role: middleware.RoleParent}).Error
+		return tx.Create(&models.TeamMember{UserID: user.ID, TeamID: fam.ID, Role: middleware.RoleParent}).Error
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -150,13 +150,13 @@ func (h *Handler) respond(c *gin.Context, email, password string) {
 		httpx.UnauthorizedT(c, "email_or_password_wrong")
 		return
 	}
-	var fam models.Family
-	if err := h.app.DB.First(&fam, "id = ?", user.FamilyID).Error; err != nil {
+	var fam models.Team
+	if err := h.app.DB.First(&fam, "id = ?", user.TeamID).Error; err != nil {
 		httpx.UnauthorizedT(c, "unauthorized")
 		return
 	}
-	var uf models.UserFamily
-	if err := h.app.DB.Where("user_id = ? AND family_id = ?", user.ID, fam.ID).First(&uf).Error; err == nil {
+	var uf models.TeamMember
+	if err := h.app.DB.Where("user_id = ? AND team_id = ?", user.ID, fam.ID).First(&uf).Error; err == nil {
 		user.Role = uf.Role
 	}
 	token, err := middleware.CreateToken(h.app.DB, fam.ID, "user", user.ID, "登录会话", c.ClientIP(), c.Request.UserAgent(), sessionTTL)
@@ -164,7 +164,7 @@ func (h *Handler) respond(c *gin.Context, email, password string) {
 		httpx.ErrT(c, 500, "internal_error")
 		return
 	}
-	httpx.OK(c, loginResp{Token: token, User: user, Family: fam})
+	httpx.OK(c, loginResp{Token: token, User: user, Team: fam})
 }
 
 func (h *Handler) me(c *gin.Context) {
@@ -174,12 +174,12 @@ func (h *Handler) me(c *gin.Context) {
 		httpx.UnauthorizedT(c, "unauthorized")
 		return
 	}
-	var fam models.Family
-	middleware.DB(c).First(&fam, "id = ?", cl.FamilyID)
-	httpx.OK(c, gin.H{"user": user, "family": fam})
+	var fam models.Team
+	h.app.DB.First(&fam, "id = ?", cl.TeamID)
+	httpx.OK(c, gin.H{"user": user, "team": fam})
 }
 
-type familyEntry struct {
+type teamEntry struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Role   string `json:"role"`
@@ -188,32 +188,32 @@ type familyEntry struct {
 
 func (h *Handler) listFamilies(c *gin.Context) {
 	cl := middleware.ClaimsOf(c)
-	var rows []models.UserFamily
+	var rows []models.TeamMember
 	if err := h.app.DB.Where("user_id = ?", cl.UserID).Find(&rows).Error; err != nil {
 		httpx.ErrT(c, 500, "query_failed")
 		return
 	}
-	out := make([]familyEntry, 0, len(rows))
+	out := make([]teamEntry, 0, len(rows))
 	for _, r := range rows {
-		var fam models.Family
-		if err := h.app.DB.First(&fam, "id = ?", r.FamilyID).Error; err != nil {
+		var fam models.Team
+		if err := h.app.DB.First(&fam, "id = ?", r.TeamID).Error; err != nil {
 			continue
 		}
-		out = append(out, familyEntry{ID: fam.ID, Name: fam.Name, Role: r.Role, IsHome: r.FamilyID == cl.FamilyID})
+		out = append(out, teamEntry{ID: fam.ID, Name: fam.Name, Role: r.Role, IsHome: r.TeamID == cl.TeamID})
 	}
 	httpx.OK(c, out)
 }
 
-func (h *Handler) switchFamily(c *gin.Context) {
+func (h *Handler) switchTeam(c *gin.Context) {
 	var in struct {
-		FamilyID string `json:"familyId"`
+		TeamID string `json:"teamId"`
 	}
 	if !httpx.Bind(c, &in) {
 		return
 	}
 	cl := middleware.ClaimsOf(c)
-	var uf models.UserFamily
-	if err := h.app.DB.Where("user_id = ? AND family_id = ?", cl.UserID, in.FamilyID).First(&uf).Error; err != nil {
+	var uf models.TeamMember
+	if err := h.app.DB.Where("user_id = ? AND team_id = ?", cl.UserID, in.TeamID).First(&uf).Error; err != nil {
 		httpx.ForbiddenT(c, "forbidden")
 		return
 	}
@@ -222,20 +222,20 @@ func (h *Handler) switchFamily(c *gin.Context) {
 		httpx.UnauthorizedT(c, "unauthorized")
 		return
 	}
-	user.FamilyID = uf.FamilyID
+	user.TeamID = uf.TeamID
 	user.Role = uf.Role
 	if err := h.app.DB.Save(&user).Error; err != nil {
 		httpx.ErrT(c, 500, "save_failed")
 		return
 	}
-	var fam models.Family
-	h.app.DB.First(&fam, "id = ?", uf.FamilyID)
+	var fam models.Team
+	h.app.DB.First(&fam, "id = ?", uf.TeamID)
 	token, err := middleware.CreateToken(h.app.DB, fam.ID, "user", user.ID, "登录会话", c.ClientIP(), c.Request.UserAgent(), sessionTTL)
 	if err != nil {
 		httpx.ErrT(c, 500, "internal_error")
 		return
 	}
-	httpx.OK(c, loginResp{Token: token, User: user, Family: fam})
+	httpx.OK(c, loginResp{Token: token, User: user, Team: fam})
 }
 
 func (h *Handler) updateProfile(c *gin.Context) {

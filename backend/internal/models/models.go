@@ -6,7 +6,7 @@ import "time"
 const (
 	VisibilityPrivate = 1 // Only owner
 	VisibilityBusy    = 2 // Others see busy, no details
-	VisibilityFamily  = 3 // Everyone (default)
+	VisibilityTeam  = 3 // Everyone (default)
 )
 
 // Scopes for the file library.
@@ -15,7 +15,7 @@ const (
 	ScopePersonal = "personal"
 )
 
-type Family struct {
+type Team struct {
 	ID            string    `gorm:"primaryKey;size:36" json:"id"`
 	Name          string    `gorm:"size:64;not null" json:"name"`
 	OwnerID       string    `gorm:"size:36" json:"ownerId"`
@@ -26,7 +26,7 @@ type Family struct {
 
 type User struct {
 	ID           string    `gorm:"primaryKey;size:36" json:"id"`
-	FamilyID     string    `gorm:"size:36;index" json:"familyId"`
+	TeamID     string    `gorm:"size:36;index" json:"teamId"`
 	Email        string    `gorm:"size:255;uniqueIndex;not null" json:"email"`
 	PasswordHash string    `gorm:"size:255;not null" json:"-"`
 	Name         string    `gorm:"size:64;not null" json:"name"`
@@ -35,16 +35,16 @@ type User struct {
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
-// UserFamily is the multi-space membership join table.
-type UserFamily struct {
+// TeamMember is the multi-space membership join table.
+type TeamMember struct {
 	UserID   string `gorm:"primaryKey;size:36" json:"userId"`
-	FamilyID string `gorm:"primaryKey;size:36" json:"familyId"`
+	TeamID string `gorm:"primaryKey;size:36" json:"teamId"`
 	Role     string `gorm:"size:16;default:child" json:"role"`
 }
 
 type Token struct {
 	ID         string     `gorm:"primaryKey;size:36" json:"id"`
-	FamilyID   string     `gorm:"size:36;index" json:"familyId"`
+	TeamID   string     `gorm:"size:36;index" json:"teamId"`
 	Kind       string     `gorm:"size:16;not null" json:"kind"`
 	SubjectID  string     `gorm:"size:36" json:"subjectId"`
 	Name       string     `gorm:"size:128" json:"name"`
@@ -60,7 +60,7 @@ type Token struct {
 
 type Invite struct {
 	ID        string     `gorm:"primaryKey;size:36" json:"id"`
-	FamilyID  string     `gorm:"size:36;index" json:"familyId"`
+	TeamID  string     `gorm:"size:36;index" json:"teamId"`
 	TokenHash string     `gorm:"size:64;uniqueIndex;not null" json:"-"`
 	Role      string     `gorm:"size:16;default:child" json:"role"`
 	ExpiresAt time.Time  `json:"expiresAt"`
@@ -70,7 +70,7 @@ type Invite struct {
 
 type CalendarEvent struct {
 	ID          string     `gorm:"primaryKey;size:36" json:"id"`
-	FamilyID    string     `gorm:"size:36;index" json:"familyId"`
+	TeamID    string     `gorm:"size:36;index" json:"teamId"`
 	UserID      string     `gorm:"size:36;index" json:"userId"`
 	UID         string     `gorm:"size:64;index" json:"uid"`
 	Title       string     `gorm:"size:255;not null" json:"title"`
@@ -91,7 +91,7 @@ type CalendarEvent struct {
 
 type Todo struct {
 	ID        string     `gorm:"primaryKey;size:36" json:"id"`
-	FamilyID  string     `gorm:"size:36;index" json:"familyId"`
+	TeamID  string     `gorm:"size:36;index" json:"teamId"`
 	UserID    string     `gorm:"size:36;index" json:"userId"`
 	Title     string     `gorm:"size:255;not null" json:"title"`
 	Note      string     `gorm:"size:2000" json:"note"`
@@ -105,7 +105,7 @@ type Todo struct {
 
 type File struct {
 	ID             string     `gorm:"primaryKey;size:36" json:"id"`
-	FamilyID       string     `gorm:"size:36;index" json:"familyId"`
+	TeamID       string     `gorm:"size:36;index" json:"teamId"`
 	Scope          string     `gorm:"size:16;not null;default:public" json:"scope"`
 	OwnerID        string     `gorm:"size:36;index" json:"ownerId"`
 	Name           string     `gorm:"size:255;not null" json:"name"`
@@ -119,7 +119,7 @@ type File struct {
 
 type FileFolder struct {
 	ID        string     `gorm:"primaryKey;size:36" json:"id"`
-	FamilyID  string     `gorm:"size:36;index" json:"familyId"`
+	TeamID  string     `gorm:"size:36;index" json:"teamId"`
 	Scope     string     `gorm:"size:16;not null;default:public" json:"scope"`
 	OwnerID   string     `gorm:"size:36;index" json:"ownerId"`
 	ParentID  string     `gorm:"size:36;default:'';index" json:"parentId"`

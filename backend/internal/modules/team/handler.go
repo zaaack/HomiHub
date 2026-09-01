@@ -1,4 +1,4 @@
-package modulefamily
+package moduleteam
 
 import (
 	"strings"
@@ -19,7 +19,7 @@ type Handler struct {
 	app *modules.App
 }
 
-func (h *Handler) ID() string { return "family" }
+func (h *Handler) ID() string { return "team" }
 
 func (h *Handler) Init(app *modules.App) error {
 	h.app = app
@@ -28,10 +28,10 @@ func (h *Handler) Init(app *modules.App) error {
 
 func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 	auth := middleware.Auth(h.app.DB, h.app.Config.JWTSecret)
-	g.GET("/family", auth, h.get)
-	g.PATCH("/family", auth, middleware.RequireParent(), h.rename)
-	g.POST("/family/reset-calendar-token", auth, middleware.RequireParent(), h.resetCalendarToken)
-	g.GET("/family/members", auth, h.members)
+	g.GET("/team", auth, h.get)
+	g.PATCH("/team", auth, middleware.RequireParent(), h.rename)
+	g.POST("/team/reset-calendar-token", auth, middleware.RequireParent(), h.resetCalendarToken)
+	g.GET("/team/members", auth, h.members)
 	g.POST("/invites", auth, middleware.RequireParent(), h.createInvite)
 	g.GET("/invites", auth, middleware.RequireParent(), h.listInvites)
 	g.GET("/invites/info", h.inviteInfo)
@@ -40,9 +40,9 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 
 func (h *Handler) get(c *gin.Context) {
 	cl := middleware.ClaimsOf(c)
-	var fam models.Family
-	if err := h.app.DB.First(&fam, "id = ?", cl.FamilyID).Error; err != nil {
-		httpx.NotFoundT(c, "family_not_found")
+	var fam models.Team
+	if err := h.app.DB.First(&fam, "id = ?", cl.TeamID).Error; err != nil {
+		httpx.NotFoundT(c, "team_not_found")
 		return
 	}
 	httpx.OK(c, fam)
@@ -61,19 +61,19 @@ func (h *Handler) rename(c *gin.Context) {
 		return
 	}
 	cl := middleware.ClaimsOf(c)
-	if err := h.app.DB.Model(&models.Family{}).Where("id = ?", cl.FamilyID).Update("name", in.Name).Error; err != nil {
+	if err := h.app.DB.Model(&models.Team{}).Where("id = ?", cl.TeamID).Update("name", in.Name).Error; err != nil {
 		httpx.ErrT(c, 500, "save_failed")
 		return
 	}
-	var fam models.Family
-	h.app.DB.First(&fam, "id = ?", cl.FamilyID)
+	var fam models.Team
+	h.app.DB.First(&fam, "id = ?", cl.TeamID)
 	httpx.OK(c, fam)
 }
 
 func (h *Handler) resetCalendarToken(c *gin.Context) {
 	cl := middleware.ClaimsOf(c)
 	token := middleware.RandomToken(16)
-	if err := h.app.DB.Model(&models.Family{}).Where("id = ?", cl.FamilyID).Update("calendar_token", token).Error; err != nil {
+	if err := h.app.DB.Model(&models.Team{}).Where("id = ?", cl.TeamID).Update("calendar_token", token).Error; err != nil {
 		httpx.ErrT(c, 500, "save_failed")
 		return
 	}
@@ -91,13 +91,13 @@ type memberView struct {
 
 func (h *Handler) members(c *gin.Context) {
 	cl := middleware.ClaimsOf(c)
-	var rows []models.UserFamily
+	var rows []models.TeamMember
 	if err := middleware.DB(c).Find(&rows).Error; err != nil {
 		httpx.ErrT(c, 500, "query_failed")
 		return
 	}
-	var fam models.Family
-	h.app.DB.First(&fam, "id = ?", cl.FamilyID)
+	var fam models.Team
+	h.app.DB.First(&fam, "id = ?", cl.TeamID)
 	out := make([]memberView, 0, len(rows))
 	for _, r := range rows {
 		var u models.User
@@ -131,12 +131,12 @@ func (h *Handler) createInvite(c *gin.Context) {
 	raw := middleware.RandomToken(24)
 	inv := models.Invite{
 		ID:        uuid.Must(uuid.NewV7()).String(),
-		FamilyID:  cl.FamilyID,
+		TeamID:  cl.TeamID,
 		TokenHash: middleware.HashToken(raw),
 		Role:      in.Role,
 		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
 	}
-	if err := middleware.DB(c).Create(&inv).Error; err != nil {
+	if err := h.app.DB.Create(&inv).Error; err != nil {
 		httpx.ErrT(c, 500, "create_failed")
 		return
 	}
@@ -168,12 +168,12 @@ func (h *Handler) inviteInfo(c *gin.Context) {
 		httpx.NotFoundT(c, "invite_invalid")
 		return
 	}
-	var fam models.Family
-	if err := h.app.DB.First(&fam, "id = ?", inv.FamilyID).Error; err != nil {
+	var fam models.Team
+	if err := h.app.DB.First(&fam, "id = ?", inv.TeamID).Error; err != nil {
 		httpx.NotFoundT(c, "invite_invalid")
 		return
 	}
-	httpx.OK(c, gin.H{"familyName": fam.Name, "role": inv.Role})
+	httpx.OK(c, gin.H{"teamName": fam.Name, "role": inv.Role})
 }
 
 func (h *Handler) join(c *gin.Context) {
@@ -198,9 +198,9 @@ func (h *Handler) join(c *gin.Context) {
 	now := time.Now()
 	err := h.app.DB.Transaction(func(tx *gorm.DB) error {
 		var n int64
-		tx.Model(&models.UserFamily{}).Where("user_id = ? AND family_id = ?", user.ID, inv.FamilyID).Count(&n)
+		tx.Model(&models.TeamMember{}).Where("user_id = ? AND team_id = ?", user.ID, inv.TeamID).Count(&n)
 		if n == 0 {
-			if err := tx.Create(&models.UserFamily{UserID: user.ID, FamilyID: inv.FamilyID, Role: inv.Role}).Error; err != nil {
+			if err := tx.Create(&models.TeamMember{UserID: user.ID, TeamID: inv.TeamID, Role: inv.Role}).Error; err != nil {
 				return err
 			}
 		}
@@ -210,18 +210,18 @@ func (h *Handler) join(c *gin.Context) {
 		httpx.ErrT(c, 500, "save_failed")
 		return
 	}
-	user.FamilyID = inv.FamilyID
+	user.TeamID = inv.TeamID
 	user.Role = inv.Role
 	if err := h.app.DB.Save(&user).Error; err != nil {
 		httpx.ErrT(c, 500, "save_failed")
 		return
 	}
-	var fam models.Family
-	h.app.DB.First(&fam, "id = ?", inv.FamilyID)
+	var fam models.Team
+	h.app.DB.First(&fam, "id = ?", inv.TeamID)
 	token, err := middleware.CreateToken(h.app.DB, fam.ID, "user", user.ID, "登录会话", c.ClientIP(), c.Request.UserAgent(), 30*24*time.Hour)
 	if err != nil {
 		httpx.ErrT(c, 500, "internal_error")
 		return
 	}
-	httpx.OK(c, moduleauth.LoginResp{Token: token, User: user, Family: fam})
+	httpx.OK(c, moduleauth.LoginResp{Token: token, User: user, Team: fam})
 }

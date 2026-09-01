@@ -43,8 +43,8 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 	g.DELETE("/files/folders/:id", auth, h.deleteFolder)
 }
 
-func contentKey(familyID, scope, fileID string) string {
-	return fmt.Sprintf("files/%s/%s/%s", familyID, scope, fileID)
+func contentKey(teamID, scope, fileID string) string {
+	return fmt.Sprintf("files/%s/%s/%s", teamID, scope, fileID)
 }
 
 func (h *Handler) canView(c *gin.Context, f *models.File) bool {
@@ -107,7 +107,7 @@ func (h *Handler) create(c *gin.Context) {
 		return
 	}
 	fileID := uuid.Must(uuid.NewV7()).String()
-	key := contentKey(cl.FamilyID, scope, fileID)
+	key := contentKey(cl.TeamID, scope, fileID)
 	part, err := fileHeader.Open()
 	if err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")
@@ -120,7 +120,7 @@ func (h *Handler) create(c *gin.Context) {
 	}
 	f := models.File{
 		ID:        fileID,
-		FamilyID:  cl.FamilyID,
+		TeamID:  cl.TeamID,
 		Scope:     scope,
 		OwnerID:   cl.UserID,
 		Name:      fileHeader.Filename,
@@ -157,7 +157,7 @@ func (h *Handler) content(c *gin.Context) {
 		httpx.ForbiddenT(c, "forbidden")
 		return
 	}
-	rc, err := h.st.Open(c.Request.Context(), contentKey(f.FamilyID, f.Scope, f.ID))
+	rc, err := h.st.Open(c.Request.Context(), contentKey(f.TeamID, f.Scope, f.ID))
 	if err != nil {
 		httpx.ErrT(c, http.StatusNotFound, "file_not_found")
 		return
@@ -263,7 +263,7 @@ func (h *Handler) createFolder(c *gin.Context) {
 	}
 	folder := models.FileFolder{
 		ID:       uuid.Must(uuid.NewV7()).String(),
-		FamilyID: cl.FamilyID,
+		TeamID: cl.TeamID,
 		Scope:    in.Scope,
 		OwnerID:  cl.UserID,
 		ParentID: in.ParentID,

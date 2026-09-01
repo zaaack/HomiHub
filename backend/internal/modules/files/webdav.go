@@ -74,7 +74,7 @@ func (w *filesWebDAV) db(ctx context.Context) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	return middleware.ScopedDB(w.h.app.DB, s.Family.ID), nil
+	return middleware.ScopedDB(w.h.app.DB, s.Team.ID), nil
 }
 
 // resolveFolder walks folder names relative to the scope root to a FolderID.
@@ -86,12 +86,12 @@ func (w *filesWebDAV) resolveFolder(ctx context.Context, scope string, names []s
 	if err != nil {
 		return "", err
 	}
-	db, err := w.db(ctx)
-	if err != nil {
-		return "", err
-	}
 	folderID := ""
 	for _, n := range names {
+		db, err := w.db(ctx)
+		if err != nil {
+			return "", err
+		}
 		var f models.FileFolder
 		q := db.Where("scope = ? AND parent_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, n)
 		if scope == models.ScopePersonal {
@@ -114,10 +114,6 @@ func (w *filesWebDAV) Open(ctx context.Context, name string) (io.ReadCloser, err
 	if err != nil {
 		return nil, err
 	}
-	db, err := w.db(ctx)
-	if err != nil {
-		return nil, err
-	}
 	if len(segs) == 0 {
 		return emptyFile{}, nil
 	}
@@ -126,6 +122,10 @@ func (w *filesWebDAV) Open(ctx context.Context, name string) (io.ReadCloser, err
 		return nil, err
 	}
 	leaf := segs[len(segs)-1]
+	db, err := w.db(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var folder models.FileFolder
 	q := db.Where("scope = ? AND parent_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
 	if scope == models.ScopePersonal {
@@ -133,6 +133,10 @@ func (w *filesWebDAV) Open(ctx context.Context, name string) (io.ReadCloser, err
 	}
 	if err := q.First(&folder).Error; err == nil {
 		return emptyFile{}, nil
+	}
+	db, err = w.db(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var file models.File
 	qf := db.Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
@@ -142,7 +146,7 @@ func (w *filesWebDAV) Open(ctx context.Context, name string) (io.ReadCloser, err
 	if err := qf.First(&file).Error; err != nil {
 		return nil, fs.ErrNotExist
 	}
-	return w.h.st.Open(ctx, contentKey(file.FamilyID, file.Scope, file.ID))
+	return w.h.st.Open(ctx, contentKey(file.TeamID, file.Scope, file.ID))
 }
 
 func (w *filesWebDAV) Stat(ctx context.Context, name string) (*webdav.FileInfo, error) {
@@ -160,15 +164,15 @@ func (w *filesWebDAV) Stat(ctx context.Context, name string) (*webdav.FileInfo, 
 	if err != nil {
 		return nil, err
 	}
-	db, err := w.db(ctx)
-	if err != nil {
-		return nil, err
-	}
 	folderID, err := w.resolveFolder(ctx, scope, segs[:len(segs)-1])
 	if err != nil {
 		return nil, err
 	}
 	leaf := segs[len(segs)-1]
+	db, err := w.db(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var folder models.FileFolder
 	q := db.Where("scope = ? AND parent_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
 	if scope == models.ScopePersonal {
@@ -176,6 +180,10 @@ func (w *filesWebDAV) Stat(ctx context.Context, name string) (*webdav.FileInfo, 
 	}
 	if err := q.First(&folder).Error; err == nil {
 		return &webdav.FileInfo{Path: name, IsDir: true, ModTime: folder.UpdatedAt}, nil
+	}
+	db, err = w.db(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var file models.File
 	qf := db.Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
@@ -213,11 +221,11 @@ func (w *filesWebDAV) ReadDir(ctx context.Context, name string, recursive bool) 
 	if err != nil {
 		return nil, err
 	}
-	db, err := w.db(ctx)
+	folderID, err := w.resolveFolder(ctx, scope, segs)
 	if err != nil {
 		return nil, err
 	}
-	folderID, err := w.resolveFolder(ctx, scope, segs)
+	db, err := w.db(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -234,6 +242,10 @@ func (w *filesWebDAV) ReadDir(ctx context.Context, name string, recursive bool) 
 		out = append(out, webdav.FileInfo{
 			Path: path.Join(name, folders[i].Name), IsDir: true, ModTime: folders[i].UpdatedAt,
 		})
+	}
+	db, err = w.db(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var files []models.File
 	qf := db.Where("scope = ? AND folder_id = ? AND deleted_at IS NULL", scope, folderID)
@@ -295,28 +307,32 @@ func (w *filesWebDAV) Create(ctx context.Context, name string, body io.ReadClose
 	}
 	f := models.File{
 		ID:       fileID,
-		FamilyID: s.Family.ID,
+		TeamID: s.Team.ID,
 		Scope:    scope,
 		OwnerID:  s.User.ID,
 		Name:     leaf,
 		MimeType: mime.TypeByExtension(path.Ext(leaf)),
 		FolderID: folderID,
 	}
-	if err := w.h.st.Save(ctx, contentKey(f.FamilyID, f.Scope, f.ID), body); err != nil {
+	cr := &countingReader{r: body}
+	if err := w.h.st.Save(ctx, contentKey(f.TeamID, f.Scope, f.ID), cr); err != nil {
 		return nil, false, err
 	}
+	f.Size = cr.n
 	if created {
-		if err := db.Create(&f).Error; err != nil {
+		if err := w.h.app.DB.Create(&f).Error; err != nil {
 			return nil, false, err
 		}
 	} else {
-		f.ID = existing.ID
+		db, err := w.db(ctx)
+		if err != nil {
+			return nil, false, err
+		}
 		if err := db.Model(&models.File{}).Where("id = ?", existing.ID).Updates(map[string]any{
 			"size": f.Size, "mime_type": f.MimeType, "updated_at": time.Now(),
 		}).Error; err != nil {
 			return nil, false, err
 		}
-		f.Size = existing.Size
 	}
 	fi := &webdav.FileInfo{
 		Path:     name,
@@ -346,8 +362,16 @@ func (w *filesWebDAV) RemoveAll(ctx context.Context, name string, opts *webdav.R
 	}
 	leaf := segs[len(segs)-1]
 	now := time.Now()
+	db, err = w.db(ctx)
+	if err != nil {
+		return err
+	}
 	db.Model(&models.File{}).Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf).
 		Update("deleted_at", &now)
+	db, err = w.db(ctx)
+	if err != nil {
+		return err
+	}
 	db.Model(&models.FileFolder{}).Where("scope = ? AND parent_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf).
 		Update("deleted_at", &now)
 	return nil
@@ -375,7 +399,7 @@ func (w *filesWebDAV) Mkdir(ctx context.Context, name string) error {
 	}
 	folder := models.FileFolder{
 		ID:       uuid.Must(uuid.NewV7()).String(),
-		FamilyID: s.Family.ID,
+		TeamID: s.Team.ID,
 		Scope:    scope,
 		OwnerID:  s.User.ID,
 		ParentID: folderID,
@@ -414,3 +438,15 @@ type emptyFile struct{}
 
 func (emptyFile) Read(p []byte) (int, error)         { return 0, io.EOF }
 func (emptyFile) Close() error                       { return nil }
+
+// countingReader counts bytes read, used to capture uploaded size.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}

@@ -49,14 +49,14 @@ func resolveFromDB(base *gorm.DB, raw string) (*Claims, bool) {
 		if err := base.First(&u, "id = ?", tok.SubjectID).Error; err != nil {
 			return nil, false
 		}
-		var uf models.UserFamily
+		var uf models.TeamMember
 		role := u.Role
-		if err := base.Where("user_id = ? AND family_id = ?", u.ID, tok.FamilyID).First(&uf).Error; err == nil {
+		if err := base.Where("user_id = ? AND team_id = ?", u.ID, tok.TeamID).First(&uf).Error; err == nil {
 			role = uf.Role
 		}
 		now := time.Now()
 		base.Model(&tok).Update("last_used_at", &now)
-		return &Claims{UserID: u.ID, FamilyID: tok.FamilyID, Role: role, Kind: "user"}, true
+		return &Claims{UserID: u.ID, TeamID: tok.TeamID, Role: role, Kind: "user"}, true
 	}
 	return nil, false
 }
@@ -73,7 +73,7 @@ func resolveJWT(secret, raw string) *Claims {
 }
 
 // CreateToken issues a stateful session token and returns the raw token.
-func CreateToken(db *gorm.DB, familyID, kind, subjectID, name, ip, userAgent string, ttl time.Duration) (string, error) {
+func CreateToken(db *gorm.DB, teamID, kind, subjectID, name, ip, userAgent string, ttl time.Duration) (string, error) {
 	raw := RandomToken(32)
 	var expiresAt *time.Time
 	if ttl > 0 {
@@ -82,7 +82,7 @@ func CreateToken(db *gorm.DB, familyID, kind, subjectID, name, ip, userAgent str
 	}
 	tok := models.Token{
 		ID:        uuid.Must(uuid.NewV7()).String(),
-		FamilyID:  familyID,
+		TeamID:  teamID,
 		Kind:      kind,
 		SubjectID: subjectID,
 		Name:      name,

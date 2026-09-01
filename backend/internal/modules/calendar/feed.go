@@ -19,23 +19,23 @@ func (h *Handler) feed(c *gin.Context) {
 		h.feedAsMember(c, email, pass)
 		return
 	}
-	h.feedAsFamily(c)
+	h.feedAsTeam(c)
 }
 
-func (h *Handler) feedAsFamily(c *gin.Context) {
-	var fam models.Family
+func (h *Handler) feedAsTeam(c *gin.Context) {
+	var fam models.Team
 	if err := h.app.DB.Where("calendar_token = ?", c.Query("token")).First(&fam).Error; err != nil {
 		httpx.UnauthorizedT(c, "calendar_token_invalid")
 		return
 	}
-	scope := c.DefaultQuery("scope", "family")
+	scope := c.DefaultQuery("scope", "team")
 	var evs []models.CalendarEvent
-	q := h.app.DB.Where("family_id = ?", fam.ID)
+	q := h.app.DB.Where("team_id = ?", fam.ID)
 	switch {
 	case scope == "self":
-		q = q.Where("visibility IN ?", []int{models.VisibilityPrivate, models.VisibilityBusy, models.VisibilityFamily})
+		q = q.Where("visibility IN ?", []int{models.VisibilityPrivate, models.VisibilityBusy, models.VisibilityTeam})
 	default:
-		q = q.Where("visibility IN ?", []int{models.VisibilityFamily, models.VisibilityBusy})
+		q = q.Where("visibility IN ?", []int{models.VisibilityTeam, models.VisibilityBusy})
 	}
 	if err := q.Order("starts_at").Find(&evs).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
@@ -46,7 +46,7 @@ func (h *Handler) feedAsFamily(c *gin.Context) {
 }
 
 func (h *Handler) feedAsMember(c *gin.Context, email, calendarToken string) {
-	var fam models.Family
+	var fam models.Team
 	if err := h.app.DB.Where("calendar_token = ?", calendarToken).First(&fam).Error; err != nil {
 		httpx.UnauthorizedT(c, "calendar_token_invalid")
 		return
@@ -56,19 +56,19 @@ func (h *Handler) feedAsMember(c *gin.Context, email, calendarToken string) {
 		httpx.UnauthorizedT(c, "calendar_token_invalid")
 		return
 	}
-	var uf models.UserFamily
-	if err := h.app.DB.Where("user_id = ? AND family_id = ?", user.ID, fam.ID).First(&uf).Error; err != nil {
+	var uf models.TeamMember
+	if err := h.app.DB.Where("user_id = ? AND team_id = ?", user.ID, fam.ID).First(&uf).Error; err != nil {
 		httpx.UnauthorizedT(c, "calendar_token_invalid")
 		return
 	}
 	scope := c.DefaultQuery("scope", "self")
-	q := h.app.DB.Where("family_id = ?", fam.ID)
-	if scope == "family" {
-		q = q.Where("visibility IN ?", []int{models.VisibilityFamily, models.VisibilityBusy})
+	q := h.app.DB.Where("team_id = ?", fam.ID)
+	if scope == "team" {
+		q = q.Where("visibility IN ?", []int{models.VisibilityTeam, models.VisibilityBusy})
 	} else {
 		q = q.Where(
 			"visibility = ? OR (visibility = ? AND user_id = ?) OR visibility = ?",
-			models.VisibilityFamily, models.VisibilityPrivate, user.ID, models.VisibilityBusy,
+			models.VisibilityTeam, models.VisibilityPrivate, user.ID, models.VisibilityBusy,
 		)
 	}
 	var evs []models.CalendarEvent
@@ -86,7 +86,7 @@ func (h *Handler) feedAsMember(c *gin.Context, email, calendarToken string) {
 	cal := BuildCalendar(fam.Name, evs)
 	if scope == "self" {
 		var todos []models.Todo
-		if err := h.app.DB.Where("family_id = ? AND user_id = ? AND due_at IS NOT NULL", fam.ID, user.ID).
+		if err := h.app.DB.Where("team_id = ? AND user_id = ? AND due_at IS NOT NULL", fam.ID, user.ID).
 			Order("due_at").Find(&todos).Error; err == nil {
 			for i := range todos {
 				cal.Children = append(cal.Children, todoComponent(&todos[i]))

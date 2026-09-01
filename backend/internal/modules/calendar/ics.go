@@ -25,7 +25,7 @@ type parsedEvent struct {
 func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
 	cal := ical.NewCalendar()
 	cal.Props.SetText(ical.PropVersion, "2.0")
-	cal.Props.SetText(ical.PropProductID, "-//HomiHub//Family Calendar//CN")
+	cal.Props.SetText(ical.PropProductID, "-//HomiHub//Team Calendar//CN")
 	cal.Props.SetText("X-WR-CALNAME", name)
 	cal.Props.SetText("X-WR-CALDESC", name)
 	for i := range evs {

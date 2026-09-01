@@ -11,7 +11,7 @@ import (
 	"homihub/backend/internal/modules"
 	moduleauth "homihub/backend/internal/modules/auth"
 	modulecalendar "homihub/backend/internal/modules/calendar"
-	modulefamily "homihub/backend/internal/modules/family"
+	moduleteam "homihub/backend/internal/modules/team"
 	modulefiles "homihub/backend/internal/modules/files"
 	moduletodos "homihub/backend/internal/modules/todos"
 	"gorm.io/gorm"
@@ -33,11 +33,11 @@ func New(cfg *config.Config, database *gorm.DB, staticFS http.FileSystem) *gin.E
 	filesMod := &modulefiles.Handler{}
 	if err := modules.Mount(app, map[string]*gin.RouterGroup{
 		"auth":     api,
-		"family":   api,
+		"team":   api,
 		"calendar": api,
 		"todos":    api,
 		"files":    api,
-	}, &moduleauth.Handler{}, &modulefamily.Handler{}, calMod,
+	}, &moduleauth.Handler{}, &moduleteam.Handler{}, calMod,
 		&moduletodos.Handler{}, filesMod); err != nil {
 		panic(err)
 	}
