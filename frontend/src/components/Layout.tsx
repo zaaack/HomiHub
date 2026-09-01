@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet } from 'react-router-dom'
-import { CalendarDays, CheckSquare, FolderOpen, Users, LogOut, Menu, X, Globe } from 'lucide-react'
+import { CalendarDays, CheckSquare, FolderOpen, Users, LogOut, Menu, X, Globe, Settings } from 'lucide-react'
 import { useAuth } from '../store/auth'
 import { setLang } from '../i18n'
 
-const NAV = [
+const NAV: { to: string; labelKey: string; icon: typeof CalendarDays; parentOnly?: boolean }[] = [
   { to: '/calendar', labelKey: 'nav.calendar', icon: CalendarDays },
   { to: '/todos', labelKey: 'nav.todos', icon: CheckSquare },
   { to: '/files', labelKey: 'nav.files', icon: FolderOpen },
   { to: '/team', labelKey: 'nav.team', icon: Users },
+  { to: '/settings', labelKey: 'nav.settings', icon: Settings, parentOnly: true },
 ]
 
 export default function Layout() {
@@ -68,7 +69,7 @@ export default function Layout() {
         )}
       </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 sidebar-scroll">
-        {NAV.map(({ to, labelKey, icon: Icon }) => (
+        {NAV.filter((n) => !n.parentOnly || user?.role === 'parent').map(({ to, labelKey, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}

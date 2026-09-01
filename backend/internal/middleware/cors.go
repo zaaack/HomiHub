@@ -3,15 +3,30 @@ package middleware
 import (
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
 
-// CORS allows browser clients from the configured origins to call the API,
-// WebDAV and iCal endpoints. `allowedOrigins` is a comma-separated list of
-// exact origins (e.g. "https://app.example.com,https://admin.example.com")
-// or "*" to allow any origin.
-func CORS(allowedOrigins string) gin.HandlerFunc {
+// CORSProvider holds the current CORS allow-list. It is mutable so that the
+// settings page can update it at runtime without a restart.
+type CORSProvider struct {
+	mu       sync.RWMutex
+	origins  []string
+	allowAll bool
+}
+
+// NewCORSProvider parses a comma-separated list of exact origins (e.g.
+// "https://app.example.com,https://admin.example.com") or "*" to allow any
+// origin. An empty value disables CORS entirely.
+func NewCORSProvider(allowedOrigins string) *CORSProvider {
+	p := &CORSProvider{}
+	p.SetOrigins(allowedOrigins)
+	return p
+}
+
+// SetOrigins replaces the allow-list at runtime (called by the settings API).
+func (p *CORSProvider) SetOrigins(allowedOrigins string) {
 	var origins []string
 	allowAll := false
 	for _, o := range strings.Split(allowedOrigins, ",") {
@@ -25,10 +40,31 @@ func CORS(allowedOrigins string) gin.HandlerFunc {
 			origins = append(origins, o)
 		}
 	}
+	p.mu.Lock()
+	p.origins = origins
+	p.allowAll = allowAll
+	p.mu.Unlock()
+}
 
+// Origins returns the current configured list (comma-separated, for the
+// settings page to display).
+func (p *CORSProvider) Origins() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.allowAll {
+		return "*"
+	}
+	return strings.Join(p.origins, ",")
+}
+
+// Handler returns the CORS middleware. It allows browser clients from the
+// configured origins to call the API, WebDAV and iCal endpoints.
+func (p *CORSProvider) Handler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
-		allowed := origin != "" && (allowAll || contains(origins, origin))
+		p.mu.RLock()
+		allowed := origin != "" && (p.allowAll || contains(p.origins, origin))
+		p.mu.RUnlock()
 		if allowed {
 			// Reflect the exact origin so credentialed requests work, even
 			// when configured as "*".

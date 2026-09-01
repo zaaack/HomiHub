@@ -2,7 +2,6 @@ package modulecalendar
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/emersion/go-ical"
 	"github.com/gin-gonic/gin"
@@ -42,6 +41,15 @@ func (h *Handler) feedAsTeam(c *gin.Context) {
 		return
 	}
 	cal := BuildCalendar(fam.Name, evs)
+	if scope == "self" {
+		var todos []models.Todo
+		if err := h.app.DB.Where("team_id = ? AND user_id = ?", fam.ID, fam.OwnerID).
+			Order("due_at").Find(&todos).Error; err == nil {
+			for i := range todos {
+				cal.Children = append(cal.Children, todoComponent(&todos[i]))
+			}
+		}
+	}
 	c.Data(http.StatusOK, "text/calendar; charset=utf-8", serialize(cal))
 }
 
@@ -97,20 +105,27 @@ func (h *Handler) feedAsMember(c *gin.Context, email, calendarToken string) {
 }
 
 func todoComponent(t *models.Todo) *ical.Component {
-	comp := ical.NewEvent()
-	comp.Props.SetText(ical.PropUID, "todo-"+t.ID)
+	comp := ical.NewComponent(ical.CompToDo)
+	comp.Props.SetText(ical.PropUID, todoUID(t))
 	comp.Props.SetText(ical.PropSummary, t.Title)
 	comp.Props.SetDateTime(ical.PropDateTimeStamp, t.UpdatedAt)
-	comp.Props.SetDateTime(ical.PropDateTimeStart, *t.DueAt)
-	comp.Props.SetDateTime(ical.PropDateTimeEnd, t.DueAt.Add(time.Hour))
-	comp.Props.SetText("X-HOMIHUB-TYPE", "todo")
+	if t.DueAt != nil {
+		comp.Props.SetDateTime(ical.PropDue, *t.DueAt)
+	}
 	if t.Note != "" {
 		comp.Props.SetText(ical.PropDescription, t.Note)
+	}
+	if t.Completed {
+		comp.Props.SetText(ical.PropStatus, "COMPLETED")
+		comp.Props.SetText(ical.PropPercentComplete, "100")
+	} else {
+		comp.Props.SetText(ical.PropStatus, "NEEDS-ACTION")
+		comp.Props.SetText(ical.PropPercentComplete, "0")
 	}
 	if t.RRule != "" {
 		p := ical.NewProp(ical.PropRecurrenceRule)
 		p.Value = t.RRule
 		comp.Props.Set(p)
 	}
-	return comp.Component
+	return comp
 }

@@ -2,6 +2,8 @@ package modulecalendar
 
 import (
 	"bytes"
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-ical"
@@ -23,11 +25,7 @@ type parsedEvent struct {
 }
 
 func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
-	cal := ical.NewCalendar()
-	cal.Props.SetText(ical.PropVersion, "2.0")
-	cal.Props.SetText(ical.PropProductID, "-//HomiHub//Team Calendar//CN")
-	cal.Props.SetText("X-WR-CALNAME", name)
-	cal.Props.SetText("X-WR-CALDESC", name)
+	cal := newCalendar(name)
 	for i := range evs {
 		ev := &evs[i]
 		comp := ical.NewEvent()
@@ -63,6 +61,73 @@ func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
 		cal.Children = append(cal.Children, comp.Component)
 	}
 	return cal
+}
+
+// BuildTodoCalendar renders a single todo as a VTODO component inside a
+// calendar, so CalDAV clients (tasks.org, Apple Reminders, etc.) can read it.
+func BuildTodoCalendar(name string, t *models.Todo) *ical.Calendar {
+	cal := newCalendar(name)
+	cal.Children = append(cal.Children, todoComponent(t))
+	return cal
+}
+
+func newCalendar(name string) *ical.Calendar {
+	cal := ical.NewCalendar()
+	cal.Props.SetText(ical.PropVersion, "2.0")
+	cal.Props.SetText(ical.PropProductID, "-//HomiHub//Team Calendar//CN")
+	cal.Props.SetText("X-WR-CALNAME", name)
+	cal.Props.SetText("X-WR-CALDESC", name)
+	return cal
+}
+
+// todoUID returns the stable UID for a todo, falling back to the legacy
+// derived form for rows created before the UID column existed.
+func todoUID(t *models.Todo) string {
+	if t.UID != "" {
+		return t.UID
+	}
+	return "todo-" + t.ID
+}
+
+// parsedTodo is a VTODO component decoded from an incoming iCalendar payload.
+type parsedTodo struct {
+	UID       string
+	Title     string
+	Note      string
+	DueAt     *time.Time
+	Completed bool
+	RRule     string
+}
+
+var errNoTodo = errors.New("no VTODO in calendar")
+
+// ParseTodo extracts the first VTODO component from a calendar.
+func ParseTodo(cal *ical.Calendar) (*parsedTodo, error) {
+	for _, child := range cal.Children {
+		if child.Name != ical.CompToDo {
+			continue
+		}
+		pt := &parsedTodo{}
+		pt.UID, _ = child.Props.Text(ical.PropUID)
+		pt.Title, _ = child.Props.Text(ical.PropSummary)
+		pt.Note, _ = child.Props.Text(ical.PropDescription)
+		if due := child.Props.Get(ical.PropDue); due != nil {
+			t, err := due.DateTime(nil)
+			if err != nil {
+				return nil, err
+			}
+			pt.DueAt = &t
+		}
+		status, _ := child.Props.Text(ical.PropStatus)
+		if strings.EqualFold(status, "COMPLETED") {
+			pt.Completed = true
+		}
+		if rp := child.Props.Get(ical.PropRecurrenceRule); rp != nil {
+			pt.RRule = rp.Value
+		}
+		return pt, nil
+	}
+	return nil, errNoTodo
 }
 
 func serialize(cal *ical.Calendar) []byte {

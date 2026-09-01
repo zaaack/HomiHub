@@ -8,11 +8,13 @@ import (
 
 	"homihub/backend/internal/config"
 	"homihub/backend/internal/middleware"
+	"homihub/backend/internal/models"
 	"homihub/backend/internal/modules"
 	moduleauth "homihub/backend/internal/modules/auth"
 	modulecalendar "homihub/backend/internal/modules/calendar"
 	moduleteam "homihub/backend/internal/modules/team"
 	modulefiles "homihub/backend/internal/modules/files"
+	modulesettings "homihub/backend/internal/modules/settings"
 	moduletodos "homihub/backend/internal/modules/todos"
 	"gorm.io/gorm"
 )
@@ -26,25 +28,41 @@ func NewStaticFS(fsys fs.FS, root string) http.FileSystem {
 	return http.FS(sub)
 }
 
+func settingValue(database *gorm.DB, key string) (string, error) {
+	var s models.Setting
+	if err := database.Where("key = ?", key).First(&s).Error; err != nil {
+		return "", err
+	}
+	return s.Value, nil
+}
+
 func New(cfg *config.Config, database *gorm.DB, staticFS http.FileSystem) *gin.Engine {
 	app := &modules.App{DB: database, Config: cfg}
 
+	cors := middleware.NewCORSProvider(cfg.CORSOrigin)
+	if v, err := settingValue(database, modulesettings.SettingKeyCORSOrigins); err == nil && v != "" {
+		cors.SetOrigins(v)
+	}
+
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS(cfg.CORSOrigin))
+	r.Use(gin.Recovery(), cors.Handler())
 
 	api := r.Group("/api/v1")
 	calMod := &modulecalendar.Handler{}
 	filesMod := &modulefiles.Handler{}
+	settingsMod := &modulesettings.Handler{}
 	if err := modules.Mount(app, map[string]*gin.RouterGroup{
 		"auth":     api,
 		"team":   api,
 		"calendar": api,
 		"todos":    api,
 		"files":    api,
+		"settings": api,
 	}, &moduleauth.Handler{}, &moduleteam.Handler{}, calMod,
-		&moduletodos.Handler{}, filesMod); err != nil {
+		&moduletodos.Handler{}, filesMod, settingsMod); err != nil {
 		panic(err)
 	}
+	settingsMod.SetCORSProvider(cors)
 
 	calMod.RegisterDAV(r.Group(""), filesMod.DAVHandler())
 

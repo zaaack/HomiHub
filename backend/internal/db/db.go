@@ -46,5 +46,6 @@ func Migrate(conn *gorm.DB) error {
 		&models.Todo{},
 		&models.File{},
 		&models.FileFolder{},
+		&models.Setting{},
 	)
 }

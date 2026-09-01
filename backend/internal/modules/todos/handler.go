@@ -100,6 +100,7 @@ func (h *Handler) create(c *gin.Context) {
 	cl := middleware.ClaimsOf(c)
 	todo := models.Todo{
 		ID:       uuid.Must(uuid.NewV7()).String(),
+		UID:      "todo-" + uuid.Must(uuid.NewV7()).String(),
 		TeamID: cl.TeamID,
 		UserID:   cl.UserID,
 		Title:    in.Title,

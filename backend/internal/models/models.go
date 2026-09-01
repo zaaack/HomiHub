@@ -89,10 +89,17 @@ type CalendarEvent struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
+// Setting is a global key-value store (not tenant scoped).
+type Setting struct {
+	Key   string `gorm:"primaryKey;size:64" json:"key"`
+	Value string `gorm:"size:4096" json:"value"`
+}
+
 type Todo struct {
 	ID        string     `gorm:"primaryKey;size:36" json:"id"`
 	TeamID  string     `gorm:"size:36;index" json:"teamId"`
 	UserID    string     `gorm:"size:36;index" json:"userId"`
+	UID       string     `gorm:"size:64;index" json:"uid"`
 	Title     string     `gorm:"size:255;not null" json:"title"`
 	Note      string     `gorm:"size:2000" json:"note"`
 	Completed bool       `json:"completed"`

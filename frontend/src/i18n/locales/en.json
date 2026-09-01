@@ -6,7 +6,8 @@
     "calendar": "Calendar",
     "todos": "Todos",
     "files": "Files",
-    "team": "Team"
+    "team": "Team",
+    "settings": "Settings"
   },
   "auth": {
     "login": "Sign in",
@@ -131,6 +132,13 @@
     "joinTeam": "Join a team",
     "joinHint": "Generate an invite link in team settings, join and auto switch",
     "joined": "Joined"
+  },
+  "settings": {
+    "title": "Settings",
+    "parentOnly": "Only admins can configure",
+    "corsTitle": "Cross-Origin (CORS)",
+    "corsHint": "Allow these origins to access calendar subscriptions & WebDAV from the browser. Separate with commas, or use * to allow all",
+    "saved": "Saved"
   },
   "common": {
     "loading": "Loading…",

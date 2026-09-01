@@ -7,6 +7,7 @@ import CalendarPage from './pages/CalendarPage'
 import TodosPage from './pages/TodosPage'
 import FilesPage from './pages/FilesPage'
 import TeamPage from './pages/TeamPage'
+import SettingsPage from './pages/SettingsPage'
 import Join from './pages/Join'
 
 function RequireAuth() {
@@ -30,6 +31,7 @@ const router = createBrowserRouter([
           { path: '/todos', element: <TodosPage /> },
           { path: '/files', element: <FilesPage /> },
           { path: '/team', element: <TeamPage /> },
+          { path: '/settings', element: <SettingsPage /> },
         ],
       },
     ],

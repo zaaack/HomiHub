@@ -6,7 +6,8 @@
     "calendar": "日历",
     "todos": "待办",
     "files": "文件",
-    "team": "团队"
+    "team": "团队",
+    "settings": "设置"
   },
   "auth": {
     "login": "登录",
@@ -131,6 +132,13 @@
     "joinTeam": "加入团队",
     "joinHint": "在团队设置页生成邀请链接，加入后自动切换",
     "joined": "已加入"
+  },
+  "settings": {
+    "title": "设置",
+    "parentOnly": "仅管理员可配置",
+    "corsTitle": "跨域访问（CORS）",
+    "corsHint": "允许以下域名在浏览器中访问日历订阅与 WebDAV 链接，多个域名用逗号分隔，或填 * 允许所有来源",
+    "saved": "已保存"
   },
   "common": {
     "loading": "加载中…",
