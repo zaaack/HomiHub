@@ -2,6 +2,7 @@ package modulefiles
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -164,6 +165,10 @@ func (h *Handler) content(c *gin.Context) {
 	}
 	defer rc.Close()
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", f.Name))
+	if rs, ok := rc.(io.ReadSeeker); ok {
+		http.ServeContent(c.Writer, c.Request, f.Name, f.UpdatedAt, rs)
+		return
+	}
 	c.DataFromReader(http.StatusOK, f.Size, f.MimeType, rc, nil)
 }
 

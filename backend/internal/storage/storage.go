@@ -40,13 +40,35 @@ func (l *Local) Save(_ context.Context, key string, data io.Reader) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	f, err := os.Create(p)
+	// Write to a temp file in the same directory, then atomically rename into
+	// place so a failed/interrupted upload never leaves a partial file.
+	tmp, err := os.CreateTemp(filepath.Dir(p), ".tmp-*")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = io.Copy(f, data)
-	return err
+	tmpName := tmp.Name()
+	cleanup := func() {
+		_ = os.Remove(tmpName)
+	}
+	if _, err := io.Copy(tmp, data); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := os.Rename(tmpName, p); err != nil {
+		cleanup()
+		return err
+	}
+	return nil
 }
 
 func (l *Local) Open(_ context.Context, key string) (io.ReadCloser, error) {
