@@ -45,7 +45,11 @@ func (h *Handler) get(c *gin.Context) {
 		httpx.NotFoundT(c, "team_not_found")
 		return
 	}
-	httpx.OK(c, fam)
+	resp := gin.H{"id": fam.ID, "name": fam.Name, "createdAt": fam.CreatedAt}
+	if cl.Role == middleware.RoleParent {
+		resp["calendarToken"] = fam.CalendarToken
+	}
+	httpx.OK(c, resp)
 }
 
 func (h *Handler) rename(c *gin.Context) {

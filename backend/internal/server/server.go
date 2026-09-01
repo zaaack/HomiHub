@@ -19,7 +19,11 @@ import (
 
 // NewStaticFS wraps an fs.FS into an http.FileSystem for use with gin.
 func NewStaticFS(fsys fs.FS, root string) http.FileSystem {
-	return http.FS(fsys)
+	sub, err := fs.Sub(fsys, root)
+	if err != nil {
+		return nil
+	}
+	return http.FS(sub)
 }
 
 func New(cfg *config.Config, database *gorm.DB, staticFS http.FileSystem) *gin.Engine {

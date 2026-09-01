@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+/* ===== App design tokens — "family linen & honey". ===== */
+:root {
+  --app-bg: #F4EEE2;
+  --app-card: #FFFFFF;
+  --app-card-sub: #F7F1E5;
+  --app-card-sub-hover: #EFE6D3;
+  --app-text: #3B3226;
+  --app-muted: #7A6F5F;
+  --app-faint: #A89D8A;
+  --app-border: rgba(123, 97, 52, 0.16);
+  --app-accent: #A16207;
+  --app-accent-hover: #8A5A0B;
+  --app-accent-soft: #F5EAD2;
+  --app-on-accent: #FFFFFF;
+  --app-danger: #C2410C;
+  --app-danger-soft: #FDE8E0;
+}
+
+body {
+  background-color: var(--app-bg);
+  color: var(--app-text);
+}
+
+.card {
+  background-color: var(--app-card);
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px rgba(94, 70, 30, 0.05);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: var(--app-accent);
+  color: var(--app-on-accent);
+  border-radius: 0.75rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background-color 0.15s ease;
+}
+.btn-primary:hover { background-color: var(--app-accent-hover); }
+.btn-primary:disabled { opacity: 0.5; }
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: var(--app-card);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  border-radius: 0.75rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  transition: background-color 0.15s ease;
+}
+.btn-ghost:hover { background-color: var(--app-card-sub); }
+
+.input {
+  width: 100%;
+  background-color: var(--app-card);
+  border: 1px solid var(--app-border);
+  border-radius: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  outline: none;
+  font-size: 0.875rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.input:focus {
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-accent) 18%, transparent);
+}
+
+.select {
+  width: 100%;
+  background-color: var(--app-card);
+  border: 1px solid var(--app-border);
+  border-radius: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  outline: none;
+  font-size: 0.875rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.select:focus {
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-accent) 18%, transparent);
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.625rem;
+  font-size: 0.875rem;
+  color: var(--app-muted);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.nav-link:hover { background-color: var(--app-card-sub); color: var(--app-text); }
+.nav-link.active {
+  background-color: var(--app-accent-soft);
+  color: var(--app-accent);
+  font-weight: 500;
+}
+
+:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--app-border) 70%, transparent) transparent;
+}
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--app-border) 70%, transparent);
+  border-radius: 9999px;
+}
