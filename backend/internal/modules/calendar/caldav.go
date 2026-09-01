@@ -338,6 +338,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 		ev.EndsAt = pe.EndsAt
 		ev.AllDay = pe.AllDay
 		ev.RRule = pe.RRule
+		ev.ExDate = exDatesJoin(pe.ExDates)
 		ev.RecurrenceID = pe.RecurrenceID
 		ev.Visibility = vis
 		ev.Reminders = remindersJSON(pe.Reminders)
@@ -359,6 +360,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 			EndsAt:       pe.EndsAt,
 			AllDay:       pe.AllDay,
 			RRule:        pe.RRule,
+			ExDate:       exDatesJoin(pe.ExDates),
 			RecurrenceID: pe.RecurrenceID,
 			Visibility:   vis,
 			Reminders:    remindersJSON(pe.Reminders),
@@ -393,6 +395,7 @@ func (b *davBackend) putTodo(ctx context.Context, p, calName string, pt *parsedT
 		t.Percent = pt.Percent
 		t.Priority = pt.Priority
 		t.RRule = pt.RRule
+		t.ExDate = exDatesJoin(pt.ExDates)
 		t.Group = pt.Group
 		t.Tags = tagsToCSV(pt.Tags)
 		t.ParentID = pt.ParentUID
@@ -420,15 +423,16 @@ func (b *davBackend) putTodo(ctx context.Context, p, calName string, pt *parsedT
 			URL:         pt.URL,
 			StartAt:     pt.StartsAt,
 			DueAt:       pt.DueAt,
-			Completed:   pt.Completed,
-			Percent:     pt.Percent,
-			Priority:    pt.Priority,
-			RRule:       pt.RRule,
-			Group:       pt.Group,
-			Tags:        tagsToCSV(pt.Tags),
-			ParentID:    pt.ParentUID,
-			CompletedAt: pt.CompletedAt,
-		}
+Completed:   pt.Completed,
+		Percent:     pt.Percent,
+		Priority:    pt.Priority,
+		RRule:       pt.RRule,
+		ExDate:      exDatesJoin(pt.ExDates),
+		Group:       pt.Group,
+		Tags:        tagsToCSV(pt.Tags),
+		ParentID:    pt.ParentUID,
+		CompletedAt: pt.CompletedAt,
+	}
 		if len(pt.Reminders) > 0 {
 			if b, err := json.Marshal(pt.Reminders); err == nil {
 				t.Reminders = string(b)

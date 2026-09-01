@@ -159,6 +159,7 @@ func todoComponent(t *models.Todo) *ical.Component {
 		p.Value = t.RRule
 		comp.Props.Set(p)
 	}
+	writeExDates(comp, exDatesSplit(t.ExDate))
 	if rem := parseRemindersJSON(t.Reminders); len(rem) > 0 {
 		base := time.Now()
 		if t.StartAt != nil {

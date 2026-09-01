@@ -43,8 +43,9 @@ export const VisibilityTeam = 3
 export type Visibility = 1 | 2 | 3
 
 export interface Reminder {
-  unit: 'min' | 'hour' | 'day'
+  unit: 'min' | 'hour' | 'day' | 'at'
   value: number
+  at?: string
 }
 
 export interface CalendarEvent {
@@ -60,6 +61,7 @@ export interface CalendarEvent {
   endsAt: string
   allDay: boolean
   rrule: string
+  exdates: string[]
   visibility: Visibility
   createdAt: string
   updatedAt: string
@@ -81,6 +83,7 @@ export interface Todo {
   dueAt: string | null
   startAt: string | null
   rrule: string
+  exdates: string[]
   group: string
   tags: string
   priority: number
@@ -88,6 +91,7 @@ export interface Todo {
   url: string
   percent: number
   parentId: string
+  order: number
   hasDate: boolean
   reminders: Reminder[]
   createdAt: string

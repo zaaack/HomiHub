@@ -52,6 +52,7 @@ type eventInput struct {
 	EndsAt      string            `json:"endsAt"`
 	AllDay      bool              `json:"allDay"`
 	RRule       string            `json:"rrule"`
+	ExDates     []string          `json:"exdates"`
 	Visibility  int               `json:"visibility"`
 	Reminders   []models.Reminder `json:"reminders"`
 }
@@ -79,12 +80,21 @@ func normalize(input *eventInput) (time.Time, time.Time, bool) {
 		input.Visibility = models.VisibilityTeam
 	}
 	for _, r := range input.Reminders {
-		if r.Value <= 0 {
+		switch r.Unit {
+		case "at":
+			if r.At == nil {
+				return time.Time{}, time.Time{}, false
+			}
+		case "min", "hour", "day":
+			if r.Value <= 0 {
+				return time.Time{}, time.Time{}, false
+			}
+		default:
 			return time.Time{}, time.Time{}, false
 		}
-		switch r.Unit {
-		case "min", "hour", "day":
-		default:
+	}
+	for _, d := range input.ExDates {
+		if _, err := time.Parse(time.RFC3339, d); err != nil {
 			return time.Time{}, time.Time{}, false
 		}
 	}
@@ -98,6 +108,18 @@ type eventView struct {
 	Single    bool               `json:"single"`
 	Source    string             `json:"source,omitempty"`
 	Reminders []models.Reminder  `json:"reminders"`
+	ExDates   []string           `json:"exdates"`
+}
+
+// exDatesJoinValEx joins RFC3339 strings with a comma for the ExDate column.
+func exDatesJoinValEx(ds []string) string {
+	dates := make([]time.Time, 0, len(ds))
+	for _, d := range ds {
+		if t, err := time.Parse(time.RFC3339, d); err == nil {
+			dates = append(dates, t.UTC())
+		}
+	}
+	return exDatesJoin(dates)
 }
 
 // remindersJSON serializes a reminder list to the model's JSON column.
@@ -112,6 +134,16 @@ func remindersJSON(rs []models.Reminder) string {
 	return string(b)
 }
 
+// exDatesSplitStrs returns the model's ExDate values as RFC3339 strings.
+func exDatesSplitStrs(s string) []string {
+	dates := exDatesSplit(s)
+	out := make([]string, 0, len(dates))
+	for _, d := range dates {
+		out = append(out, d.UTC().Format(time.RFC3339))
+	}
+	return out
+}
+
 func occurrenceView(ev *models.CalendarEvent, start, end time.Time) eventView {
 	return eventView{
 		CalendarEvent: *ev,
@@ -119,6 +151,7 @@ func occurrenceView(ev *models.CalendarEvent, start, end time.Time) eventView {
 		End:           end,
 		Single:        ev.RRule == "",
 		Reminders:     parseRemindersJSON(ev.Reminders),
+		ExDates:       exDatesSplitStrs(ev.ExDate),
 	}
 }
 
@@ -202,8 +235,12 @@ func (h *Handler) personalTodoOccurrences(c *gin.Context, from, to time.Time) []
 		if err != nil {
 			continue
 		}
+		excluded := exDateSet(todo.ExDate)
 		for _, start := range rr.Between(from, to, true) {
 			start = start.UTC()
+			if excluded[start] {
+				continue
+			}
 			end := start.Add(time.Hour)
 			out = append(out, eventView{
 				CalendarEvent: models.CalendarEvent{
@@ -225,10 +262,14 @@ func (h *Handler) expand(db *gorm.DB, ev *models.CalendarEvent, from, to time.Ti
 		return nil
 	}
 	occ := rr.Between(from, to, true)
+	excluded := exDateSet(ev.ExDate)
 	exceptions, _ := loadExceptions(db, ev.UID)
 	view := make([]eventView, 0, len(occ))
 	for _, start := range occ {
 		start = start.UTC()
+		if excluded[start] {
+			continue
+		}
 		occEnd := start.Add(ev.EndsAt.Sub(ev.StartsAt))
 		if ex, ok := exceptions[start]; ok {
 			view = append(view, occurrenceView(ev, ex.StartsAt, ex.EndsAt))
@@ -237,6 +278,16 @@ func (h *Handler) expand(db *gorm.DB, ev *models.CalendarEvent, from, to time.Ti
 		view = append(view, occurrenceView(ev, start, occEnd))
 	}
 	return view
+}
+
+// exDateSet builds a lookup set keyed by UTC date-time for EXDATE exclusion.
+func exDateSet(s string) map[time.Time]bool {
+	dates := exDatesSplit(s)
+	m := make(map[time.Time]bool, len(dates))
+	for _, d := range dates {
+		m[d] = true
+	}
+	return m
 }
 
 func loadExceptions(db *gorm.DB, uid string) (map[time.Time]*models.CalendarEvent, error) {
@@ -275,6 +326,7 @@ func (h *Handler) create(c *gin.Context) {
 		EndsAt:     endsAt.UTC(),
 		AllDay:     in.AllDay,
 		RRule:      in.RRule,
+		ExDate:     exDatesJoinValEx(in.ExDates),
 		Visibility: in.Visibility,
 	}
 	if len(in.Reminders) > 0 {
@@ -319,6 +371,7 @@ func (h *Handler) update(c *gin.Context) {
 		"ends_at":     endsAt.UTC(),
 		"all_day":     in.AllDay,
 		"r_rule":      in.RRule,
+		"ex_date":     exDatesJoinValEx(in.ExDates),
 		"visibility":  in.Visibility,
 		"reminders":   remindersJSON(in.Reminders),
 	}).Error; err != nil {

@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -84,6 +85,7 @@ type CalendarEvent struct {
 	EndsAt      time.Time  `json:"endsAt"`
 	AllDay      bool       `json:"allDay"`
 	RRule       string     `gorm:"size:255" json:"rrule"`
+	ExDate      string     `gorm:"type:text" json:"-"`
 	RecurrenceID *time.Time `json:"recurrenceId"`
 	Visibility  int        `gorm:"default:3" json:"visibility"`
 	Attendees   string     `gorm:"type:text" json:"-"`
@@ -98,16 +100,20 @@ type Setting struct {
 	Value string `gorm:"size:4096" json:"value"`
 }
 
-// Reminder is a relative pre-notification (e.g. 10 minutes before), stored as
-// a JSON array on the calendar/todo model and serialized to VALARM in iCal.
+// Reminder is a pre-notification, either relative to the event/todo (Unit =
+// min|hour|day + Value) or at an absolute time (Unit = "at", At set), stored as
+// a JSON array on the model and serialized to VALARM in iCal.
 type Reminder struct {
-	Unit  string `json:"unit"` // min|hour|day
-	Value int    `json:"value"`
+	Unit  string     `json:"unit"` // min|hour|day|at
+	Value int        `json:"value"`
+	At    *time.Time `json:"at,omitempty"`
 }
 
-// Seconds returns the absolute duration this reminder represents.
+// Seconds returns the duration this relative reminder represents (0 for "at").
 func (r Reminder) Seconds() int {
 	switch r.Unit {
+	case "at":
+		return 0
 	case "hour":
 		return r.Value * 3600
 	case "day":
@@ -141,6 +147,34 @@ func RemindersJSON(rs []Reminder) string {
 	return string(b)
 }
 
+// ExDateJoin renders exception dates as a comma-separated RFC3339 string for
+// the model's ExDate column.
+func ExDateJoin(dates []time.Time) string {
+	parts := make([]string, 0, len(dates))
+	for _, d := range dates {
+		parts = append(parts, d.UTC().Format(time.RFC3339))
+	}
+	return strings.Join(parts, ",")
+}
+
+// ExDateSplit parses the model's ExDate column back into UTC times.
+func ExDateSplit(s string) []time.Time {
+	if s == "" {
+		return nil
+	}
+	var out []time.Time
+	for _, p := range strings.Split(s, ",") {
+		if p == "" {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, p); err == nil {
+			out = append(out, t.UTC())
+		}
+	}
+	return out
+}
+
+// Todo is a personal task that surface in the self CalDAV calendar as VTODO.
 type Todo struct {
 	ID          string     `gorm:"primaryKey;size:36" json:"id"`
 	TeamID      string     `gorm:"size:36;index" json:"teamId"`
@@ -152,6 +186,7 @@ type Todo struct {
 	Shared      bool       `gorm:"default:false" json:"shared"`
 	DueAt       *time.Time `json:"dueAt"`
 	RRule       string     `gorm:"size:255" json:"rrule"`
+	ExDate      string     `gorm:"type:text" json:"-"`
 	Group       string     `gorm:"size:64;index" json:"group"`
 	Tags        string     `gorm:"size:500" json:"tags"`
 	Priority    int        `gorm:"default:0" json:"priority"`
@@ -161,6 +196,7 @@ type Todo struct {
 	Percent     int        `gorm:"default:0" json:"percent"`
 	CompletedAt *time.Time `json:"completedAt"`
 	ParentID    string     `gorm:"size:36;index" json:"parentId"`
+	Order       int        `gorm:"default:0" json:"order"`
 	Reminders   string     `gorm:"type:text" json:"-"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`

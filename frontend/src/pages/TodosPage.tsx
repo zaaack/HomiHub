@@ -115,6 +115,7 @@ interface EditForm {
   percent: number
   parentId: string
   reminders: Reminder[]
+  exdates: string[]
 }
 
 const emptyEdit = (group: string): EditForm => ({
@@ -132,6 +133,7 @@ const emptyEdit = (group: string): EditForm => ({
   percent: 0,
   parentId: '',
   reminders: [],
+  exdates: [],
 })
 
 export default function TodosPage() {
@@ -142,6 +144,34 @@ export default function TodosPage() {
   const [showDone, setShowDone] = useState(false)
   const [editing, setEditing] = useState<EditForm | null>(null)
   const [busy, setBusy] = useState(false)
+  const [atSel, setAtSel] = useState('')
+  const [exSel, setExSel] = useState('')
+
+  const addAtReminder = () => {
+    if (!editing || !atSel) return
+    const at = new Date(atSel).toISOString()
+    if (editing.reminders.some((x) => remKey(x) === `at:${at}`)) return
+    setEditing({ ...editing, reminders: [...editing.reminders, { unit: 'at', value: 0, at }] })
+    setAtSel('')
+  }
+
+  const addExDate = () => {
+    if (!editing || !exSel) return
+    const iso = new Date(exSel).toISOString()
+    if (editing.exdates.includes(iso)) return
+    setEditing({ ...editing, exdates: [...editing.exdates, iso] })
+    setExSel('')
+  }
+
+  const removeExDate = (iso: string) => {
+    if (!editing) return
+    setEditing({ ...editing, exdates: editing.exdates.filter((x) => x !== iso) })
+  }
+
+  const removeAtReminder = (at: string) => {
+    if (!editing) return
+    setEditing({ ...editing, reminders: editing.reminders.filter((x) => remKey(x) !== `at:${at}`) })
+  }
 
   const load = async () => {
     try {
@@ -269,6 +299,7 @@ export default function TodosPage() {
         parentId: editing.parentId,
         shared: editing.shared,
         reminders: editing.reminders,
+        exdates: editing.exdates,
       }
       if (editing.id) {
         await api.put(`/api/v1/todos/${editing.id}`, payload)
@@ -299,6 +330,7 @@ export default function TodosPage() {
       percent: todo.percent,
       parentId: todo.parentId,
       reminders: todo.reminders ?? [],
+      exdates: todo.exdates ?? [],
     })
   }
 
@@ -600,7 +632,56 @@ export default function TodosPage() {
                     </button>
                   ))}
                 </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <input type="datetime-local" className="input flex-1" value={atSel} onChange={(e) => setAtSel(e.target.value)} />
+                  <button type="button" className="btn-ghost shrink-0" onClick={addAtReminder}>
+                    <Plus size={16} />
+                  </button>
+                </div>
+                {editing.reminders.filter((x) => x.unit === 'at').length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {editing.reminders
+                      .filter((x) => x.unit === 'at' && x.at)
+                      .map((x) => (
+                        <span
+                          key={remKey(x)}
+                          className="flex items-center gap-1 rounded-full bg-[var(--app-accent)] px-2.5 py-1 text-xs text-white"
+                        >
+                          {new Date(x.at!).toLocaleString()}
+                          <button type="button" onClick={() => removeAtReminder(x.at!)}>
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))}
+                  </div>
+                )}
               </div>
+              {editing.repeat.freq !== 'none' && (
+                <div>
+                  <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('calendar.exceptions')}</label>
+                  <div className="flex items-center gap-2">
+                    <input type="datetime-local" className="input flex-1" value={exSel} onChange={(e) => setExSel(e.target.value)} />
+                    <button type="button" className="btn-ghost shrink-0" onClick={addExDate}>
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                  {editing.exdates.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {editing.exdates.map((d) => (
+                        <span
+                          key={d}
+                          className="flex items-center gap-1 rounded-full bg-[var(--app-card-sub)] px-2.5 py-1 text-xs text-[var(--app-muted)]"
+                        >
+                          {new Date(d).toLocaleString()}
+                          <button type="button" onClick={() => removeExDate(d)}>
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('todos.location')}</label>

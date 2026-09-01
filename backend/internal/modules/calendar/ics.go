@@ -22,8 +22,56 @@ type parsedEvent struct {
 	EndsAt       time.Time
 	AllDay       bool
 	RRule        string
+	ExDates      []time.Time
 	RecurrenceID *time.Time
 	Reminders    []models.Reminder
+}
+
+// exDatesJoin renders exception dates as a comma-separated RFC3339 string for
+// the model's ExDate column.
+func exDatesJoin(dates []time.Time) string {
+	return models.ExDateJoin(dates)
+}
+
+// exDatesSplit parses the model's ExDate column back into UTC times.
+func exDatesSplit(s string) []time.Time {
+	return models.ExDateSplit(s)
+}
+
+// writeExDates emits one EXDATE prop per exception date (go-ical parses a
+// single EXDATE prop as a single value, so splitting them round-trips safely).
+func writeExDates(comp *ical.Component, dates []time.Time) {
+	for _, d := range dates {
+		p := ical.NewProp(ical.PropExceptionDates)
+		p.SetDateTime(d.UTC())
+		comp.Props.Set(p)
+	}
+}
+
+// parseAlarm decodes a single VALARM TRIGGER into a Reminder, supporting both
+// relative durations ("-PT15M") and absolute date-times (TRIGGER;VALUE=DATE-TIME).
+func parseAlarm(tr *ical.Prop) (models.Reminder, bool) {
+	if tr.ValueType() == ical.ValueDateTime || tr.ValueType() == ical.ValueDate {
+		t, err := tr.DateTime(nil)
+		if err != nil {
+			return models.Reminder{}, false
+		}
+		u := t.UTC()
+		return models.Reminder{Unit: "at", At: &u}, true
+	}
+	secs := parseTrigger(tr.Value)
+	if secs >= 0 {
+		return models.Reminder{}, false
+	}
+	secs = -secs
+	switch {
+	case secs%86400 == 0:
+		return models.Reminder{Unit: "day", Value: secs / 86400}, true
+	case secs%3600 == 0:
+		return models.Reminder{Unit: "hour", Value: secs / 3600}, true
+	default:
+		return models.Reminder{Unit: "min", Value: secs / 60}, true
+	}
 }
 
 func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
@@ -63,6 +111,7 @@ func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
 		if rem := parseRemindersJSON(ev.Reminders); len(rem) > 0 {
 			addAlarms(comp.Component, ev.StartsAt, rem)
 		}
+		writeExDates(comp.Component, exDatesSplit(ev.ExDate))
 		cal.Children = append(cal.Children, comp.Component)
 	}
 	return cal
@@ -107,6 +156,7 @@ type parsedTodo struct {
 	Percent      int
 	Priority     int
 	RRule        string
+	ExDates      []time.Time
 	Group        string
 	Tags         []string
 	ParentUID    string
@@ -185,6 +235,11 @@ func ParseTodo(cal *ical.Calendar) (*parsedTodo, error) {
 				pt.CompletedAt = &t
 			}
 		}
+		for _, ex := range child.Props[ical.PropExceptionDates] {
+			if t, err := ex.DateTime(nil); err == nil {
+				pt.ExDates = append(pt.ExDates, t.UTC())
+			}
+		}
 		for _, a := range child.Children {
 			if a.Name != ical.CompAlarm {
 				continue
@@ -193,18 +248,8 @@ func ParseTodo(cal *ical.Calendar) (*parsedTodo, error) {
 			if tr == nil {
 				continue
 			}
-			secs := parseTrigger(tr.Value)
-			if secs >= 0 {
-				continue
-			}
-			secs = -secs
-			switch {
-			case secs%86400 == 0:
-				pt.Reminders = append(pt.Reminders, models.Reminder{Unit: "day", Value: secs / 86400})
-			case secs%3600 == 0:
-				pt.Reminders = append(pt.Reminders, models.Reminder{Unit: "hour", Value: secs / 3600})
-			default:
-				pt.Reminders = append(pt.Reminders, models.Reminder{Unit: "min", Value: secs / 60})
+			if r, ok := parseAlarm(tr); ok {
+				pt.Reminders = append(pt.Reminders, r)
 			}
 		}
 		return pt, nil
@@ -269,18 +314,23 @@ func atoi(s string) int {
 	return n
 }
 
-// addAlarms appends VALARM components to a component.
+// addAlarms appends VALARM components to a component. Relative reminders are
+// rendered as negative durations relative to base; absolute ("at") reminders as
+// TRIGGER;VALUE=DATE-TIME.
 func addAlarms(comp *ical.Component, base time.Time, reminders []models.Reminder) {
 	for _, r := range reminders {
-		if r.Value <= 0 {
-			continue
-		}
-		trigSecs := -r.Seconds()
 		al := ical.NewComponent(ical.CompAlarm)
 		al.Props.SetText(ical.PropAction, "DISPLAY")
 		al.Props.SetText(ical.PropDescription, "Reminder")
 		t := ical.NewProp(ical.PropTrigger)
-		t.Value = formatTrigger(trigSecs)
+		if r.Unit == "at" && r.At != nil {
+			t.SetDateTime(r.At.UTC())
+		} else {
+			if r.Value <= 0 {
+				continue
+			}
+			t.Value = formatTrigger(-r.Seconds())
+		}
 		al.Props.Set(t)
 		comp.Children = append(comp.Children, al)
 	}
@@ -379,6 +429,11 @@ func ParseEvents(cal *ical.Calendar) []parsedEvent {
 			rid := t.UTC()
 			pe.RecurrenceID = &rid
 		}
+		for _, ex := range ev.Props[ical.PropExceptionDates] {
+			if t, err := ex.DateTime(nil); err == nil {
+				pe.ExDates = append(pe.ExDates, t.UTC())
+			}
+		}
 		for _, a := range ev.Children {
 			if a.Name != ical.CompAlarm {
 				continue
@@ -387,18 +442,8 @@ func ParseEvents(cal *ical.Calendar) []parsedEvent {
 			if tr == nil {
 				continue
 			}
-			secs := parseTrigger(tr.Value)
-			if secs >= 0 {
-				continue
-			}
-			secs = -secs
-			switch {
-			case secs%86400 == 0:
-				pe.Reminders = append(pe.Reminders, models.Reminder{Unit: "day", Value: secs / 86400})
-			case secs%3600 == 0:
-				pe.Reminders = append(pe.Reminders, models.Reminder{Unit: "hour", Value: secs / 3600})
-			default:
-				pe.Reminders = append(pe.Reminders, models.Reminder{Unit: "min", Value: secs / 60})
+			if r, ok := parseAlarm(tr); ok {
+				pe.Reminders = append(pe.Reminders, r)
 			}
 		}
 		out = append(out, pe)

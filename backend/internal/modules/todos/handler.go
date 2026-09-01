@@ -38,8 +38,27 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 
 type todoView struct {
 	models.Todo
-	HasDate   bool             `json:"hasDate"`
+	HasDate   bool              `json:"hasDate"`
 	Reminders []models.Reminder `json:"reminders"`
+	ExDates   []string          `json:"exdates"`
+}
+
+func toTodoView(t models.Todo) todoView {
+	return todoView{
+		Todo:      t,
+		HasDate:   t.DueAt != nil,
+		Reminders: models.ParseReminders(t.Reminders),
+		ExDates:   exDatesToStrs(models.ExDateSplit(t.ExDate)),
+	}
+}
+
+// exDatesToStrs renders UTC times as RFC3339 strings.
+func exDatesToStrs(ds []time.Time) []string {
+	out := make([]string, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, d.UTC().Format(time.RFC3339))
+	}
+	return out
 }
 
 // list returns the current user's private todos plus todos shared to the family.
@@ -47,13 +66,13 @@ func (h *Handler) list(c *gin.Context) {
 	cl := middleware.ClaimsOf(c)
 	var todos []models.Todo
 	if err := middleware.DB(c).Where("user_id = ? OR shared = ?", cl.UserID, true).
-		Order("completed, due_at, created_at").Find(&todos).Error; err != nil {
+		Order("completed, \"order\", created_at").Find(&todos).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
 		return
 	}
 	view := make([]todoView, 0, len(todos))
 	for _, t := range todos {
-		view = append(view, todoView{Todo: t, HasDate: t.DueAt != nil, Reminders: models.ParseReminders(t.Reminders)})
+		view = append(view, toTodoView(t))
 	}
 	httpx.OK(c, view)
 }
@@ -64,6 +83,7 @@ type todoInput struct {
 	DueAt     *string           `json:"dueAt"`
 	StartAt   *string           `json:"startAt"`
 	RRule     string            `json:"rrule"`
+	ExDates   []string          `json:"exdates"`
 	Group     string            `json:"group"`
 	Tags      string            `json:"tags"`
 	Priority  int               `json:"priority"`
@@ -71,6 +91,7 @@ type todoInput struct {
 	URL       string            `json:"url"`
 	Percent   int               `json:"percent"`
 	ParentID  string            `json:"parentId"`
+	Order     int               `json:"order"`
 	Shared    *bool             `json:"shared"`
 	Completed *bool             `json:"completed"`
 	Reminders []models.Reminder `json:"reminders"`
@@ -86,6 +107,20 @@ func parseOptTime(s *string) (*time.Time, bool) {
 	}
 	u := t.UTC()
 	return &u, true
+}
+
+// exDatesJoinVal joins RFC3339 strings with a comma for storage in ExDate.
+func exDatesJoinVal(ds []string) string {
+	parts := make([]string, 0, len(ds))
+	for _, d := range ds {
+		if d == "" {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, d); err == nil {
+			parts = append(parts, t.UTC().Format(time.RFC3339))
+		}
+	}
+	return strings.Join(parts, ",")
 }
 
 func normalizeTodo(in *todoInput) bool {
@@ -111,12 +146,21 @@ func normalizeTodo(in *todoInput) bool {
 		return false
 	}
 	for _, r := range in.Reminders {
-		if r.Value <= 0 {
+		switch r.Unit {
+		case "at":
+			if r.At == nil {
+				return false
+			}
+		case "min", "hour", "day":
+			if r.Value <= 0 {
+				return false
+			}
+		default:
 			return false
 		}
-		switch r.Unit {
-		case "min", "hour", "day":
-		default:
+	}
+	for _, d := range in.ExDates {
+		if _, err := time.Parse(time.RFC3339, d); err != nil {
 			return false
 		}
 	}
@@ -138,6 +182,7 @@ func (h *Handler) create(c *gin.Context) {
 		Title:    in.Title,
 		Note:     in.Note,
 		RRule:    in.RRule,
+		ExDate:   exDatesJoinVal(in.ExDates),
 		Group:    in.Group,
 		Tags:     in.Tags,
 		Priority: in.Priority,
@@ -145,6 +190,7 @@ func (h *Handler) create(c *gin.Context) {
 		URL:      in.URL,
 		Percent:  in.Percent,
 		ParentID: in.ParentID,
+		Order:    in.Order,
 	}
 	todo.StartAt, _ = parseOptTime(in.StartAt)
 	todo.DueAt, _ = parseOptTime(in.DueAt)
@@ -166,7 +212,7 @@ func (h *Handler) create(c *gin.Context) {
 		httpx.ErrT(c, http.StatusInternalServerError, "create_failed")
 		return
 	}
-	httpx.Created(c, todoView{Todo: todo, HasDate: todo.DueAt != nil, Reminders: in.Reminders})
+	httpx.Created(c, toTodoView(todo))
 }
 
 func (h *Handler) update(c *gin.Context) {
@@ -190,6 +236,7 @@ func (h *Handler) update(c *gin.Context) {
 		"title":    in.Title,
 		"note":     in.Note,
 		"r_rule":   in.RRule,
+		"ex_date":  exDatesJoinVal(in.ExDates),
 		"group":    in.Group,
 		"tags":     in.Tags,
 		"priority": in.Priority,
@@ -197,6 +244,7 @@ func (h *Handler) update(c *gin.Context) {
 		"url":      in.URL,
 		"percent":  in.Percent,
 		"parent_id": in.ParentID,
+		"order":    in.Order,
 	}
 	if len(in.Reminders) > 0 {
 		if b, err := json.Marshal(in.Reminders); err == nil {
@@ -230,7 +278,7 @@ func (h *Handler) update(c *gin.Context) {
 	}
 	var todo models.Todo
 	middleware.DB(c).First(&todo, "id = ?", id)
-	httpx.OK(c, todoView{Todo: todo, HasDate: todo.DueAt != nil, Reminders: models.ParseReminders(todo.Reminders)})
+	httpx.OK(c, toTodoView(todo))
 }
 
 func (h *Handler) toggle(c *gin.Context) {
@@ -259,7 +307,7 @@ func (h *Handler) toggle(c *gin.Context) {
 	}
 	var updated models.Todo
 	middleware.DB(c).First(&updated, "id = ?", c.Param("id"))
-	httpx.OK(c, todoView{Todo: updated, HasDate: updated.DueAt != nil, Reminders: models.ParseReminders(updated.Reminders)})
+	httpx.OK(c, toTodoView(updated))
 }
 
 func (h *Handler) delete(c *gin.Context) {

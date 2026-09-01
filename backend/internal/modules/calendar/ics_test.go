@@ -6,9 +6,23 @@ import (
 	"time"
 
 	"github.com/emersion/go-ical"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 
 	"homihub/backend/internal/models"
 )
+
+func testDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.CalendarEvent{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return db
+}
 
 func TestReminderSeconds(t *testing.T) {
 	cases := []struct {
@@ -244,5 +258,78 @@ func TestTodoComponentCompletedFields(t *testing.T) {
 	pc, _ := comp.Props.Text(ical.PropPercentComplete)
 	if pc != "100" {
 		t.Errorf("PERCENT-COMPLETE = %q", pc)
+	}
+}
+
+func TestTodoAbsoluteReminderAndExDate(t *testing.T) {
+	at := time.Date(2026, 9, 11, 9, 0, 0, 0, time.UTC)
+	todo := &models.Todo{
+		UID:     "u-at",
+		Title:   "绝对提醒",
+		RRule:   "FREQ=DAILY;INTERVAL=2",
+		ExDate:  "2026-09-11T09:00:00Z",
+		Reminders: `[{"unit":"at","at":"2026-09-10T20:00:00Z"}]`,
+	}
+	comp := todoComponent(todo)
+	if len(comp.Props[ical.PropExceptionDates]) != 1 {
+		t.Fatalf("EXDATE props = %d, want 1", len(comp.Props[ical.PropExceptionDates]))
+	}
+	ex := comp.Props[ical.PropExceptionDates][0]
+	if got, err := ex.DateTime(nil); err != nil || got.UTC() != at {
+		t.Errorf("EXDATE = %v, err = %v", got, err)
+	}
+	var abs *ical.Prop
+	for _, ch := range comp.Children {
+		if ch.Name == ical.CompAlarm {
+			abs = ch.Props.Get(ical.PropTrigger)
+		}
+	}
+	if abs == nil {
+		t.Fatal("no VALARM")
+	}
+	if abs.ValueType() != ical.ValueDateTime {
+		t.Errorf("TRIGGER ValueType = %v, want DATE-TIME", abs.ValueType())
+	}
+	if got, err := abs.DateTime(nil); err != nil || got.UTC() != time.Date(2026, 9, 10, 20, 0, 0, 0, time.UTC) {
+		t.Errorf("absolute trigger = %v, err = %v", got, err)
+	}
+
+	cal := ical.NewCalendar()
+	cal.Children = append(cal.Children, comp)
+	pt, err := ParseTodo(cal)
+	if err != nil {
+		t.Fatalf("ParseTodo: %v", err)
+	}
+	if len(pt.ExDates) != 1 || !pt.ExDates[0].Equal(at) {
+		t.Errorf("parsed ExDates = %v", pt.ExDates)
+	}
+	if len(pt.Reminders) != 1 || pt.Reminders[0].Unit != "at" || pt.Reminders[0].At == nil ||
+		!pt.Reminders[0].At.Equal(time.Date(2026, 9, 10, 20, 0, 0, 0, time.UTC)) {
+		t.Errorf("parsed reminders = %+v", pt.Reminders)
+	}
+}
+
+func TestExDateSetExcludesOccurrences(t *testing.T) {
+	ev := &models.CalendarEvent{
+		UID:      "ev-r",
+		Title:    "每周会",
+		StartsAt: time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC),
+		EndsAt:   time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC),
+		RRule:    "FREQ=WEEKLY;BYDAY=TU",
+		ExDate:   "2026-09-08T09:00:00Z",
+	}
+	h := &Handler{}
+	db := testDB(t)
+	occ := h.expand(db, ev,
+		time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC))
+	want := []string{"2026-09-01", "2026-09-15", "2026-09-22", "2026-09-29"}
+	if len(occ) != len(want) {
+		t.Fatalf("count = %d, want %d (occ: %+v)", len(occ), len(want), occ)
+	}
+	for i, w := range want {
+		if got := occ[i].Start.UTC().Format("2006-01-02"); got != w {
+			t.Errorf("occ[%d] = %s, want %s", i, got, w)
+		}
 	}
 }

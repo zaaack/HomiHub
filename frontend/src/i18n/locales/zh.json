@@ -74,6 +74,7 @@
     "remindUnitMin": "分钟前",
     "remindUnitHour": "小时前",
     "remindUnitDay": "天前",
+    "exceptions": "例外日期",
     "week": {
       "sun": "日",
       "mon": "一",

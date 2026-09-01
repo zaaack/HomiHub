@@ -74,6 +74,7 @@
     "remindUnitMin": "min before",
     "remindUnitHour": "hour before",
     "remindUnitDay": "day before",
+    "exceptions": "Exceptions",
     "week": {
       "sun": "Sun",
       "mon": "Mon",
