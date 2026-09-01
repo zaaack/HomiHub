@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Visibility constants for calendar events.
 const (
@@ -95,19 +98,72 @@ type Setting struct {
 	Value string `gorm:"size:4096" json:"value"`
 }
 
+// Reminder is a relative pre-notification (e.g. 10 minutes before), stored as
+// a JSON array on the calendar/todo model and serialized to VALARM in iCal.
+type Reminder struct {
+	Unit  string `json:"unit"` // min|hour|day
+	Value int    `json:"value"`
+}
+
+// Seconds returns the absolute duration this reminder represents.
+func (r Reminder) Seconds() int {
+	switch r.Unit {
+	case "hour":
+		return r.Value * 3600
+	case "day":
+		return r.Value * 86400
+	default:
+		return r.Value * 60
+	}
+}
+
+// ParseReminders decodes the stored JSON column into a reminder slice.
+func ParseReminders(s string) []Reminder {
+	if s == "" {
+		return nil
+	}
+	var out []Reminder
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// RemindersJSON encodes a reminder slice for storage.
+func RemindersJSON(rs []Reminder) string {
+	if len(rs) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(rs)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 type Todo struct {
-	ID        string     `gorm:"primaryKey;size:36" json:"id"`
-	TeamID  string     `gorm:"size:36;index" json:"teamId"`
-	UserID    string     `gorm:"size:36;index" json:"userId"`
-	UID       string     `gorm:"size:64;index" json:"uid"`
-	Title     string     `gorm:"size:255;not null" json:"title"`
-	Note      string     `gorm:"size:2000" json:"note"`
-	Completed bool       `json:"completed"`
-	Shared    bool       `gorm:"default:false" json:"shared"`
-	DueAt     *time.Time `json:"dueAt"`
-	RRule     string     `gorm:"size:255" json:"rrule"`
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt time.Time  `json:"updatedAt"`
+	ID          string     `gorm:"primaryKey;size:36" json:"id"`
+	TeamID      string     `gorm:"size:36;index" json:"teamId"`
+	UserID      string     `gorm:"size:36;index" json:"userId"`
+	UID         string     `gorm:"size:64;index" json:"uid"`
+	Title       string     `gorm:"size:255;not null" json:"title"`
+	Note        string     `gorm:"size:2000" json:"note"`
+	Completed   bool       `json:"completed"`
+	Shared      bool       `gorm:"default:false" json:"shared"`
+	DueAt       *time.Time `json:"dueAt"`
+	RRule       string     `gorm:"size:255" json:"rrule"`
+	Group       string     `gorm:"size:64;index" json:"group"`
+	Tags        string     `gorm:"size:500" json:"tags"`
+	Priority    int        `gorm:"default:0" json:"priority"`
+	StartAt     *time.Time `json:"startAt"`
+	Location    string     `gorm:"size:255" json:"location"`
+	URL         string     `gorm:"size:512" json:"url"`
+	Percent     int        `gorm:"default:0" json:"percent"`
+	CompletedAt *time.Time `json:"completedAt"`
+	ParentID    string     `gorm:"size:36;index" json:"parentId"`
+	Reminders   string     `gorm:"type:text" json:"-"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 type File struct {

@@ -3,6 +3,7 @@ package modulecalendar
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ type parsedEvent struct {
 	AllDay       bool
 	RRule        string
 	RecurrenceID *time.Time
+	Reminders    []models.Reminder
 }
 
 func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
@@ -58,6 +60,9 @@ func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
 			rid.SetDateTime(*ev.RecurrenceID)
 			comp.Props.Set(rid)
 		}
+		if rem := parseRemindersJSON(ev.Reminders); len(rem) > 0 {
+			addAlarms(comp.Component, ev.StartsAt, rem)
+		}
 		cal.Children = append(cal.Children, comp.Component)
 	}
 	return cal
@@ -91,15 +96,29 @@ func todoUID(t *models.Todo) string {
 
 // parsedTodo is a VTODO component decoded from an incoming iCalendar payload.
 type parsedTodo struct {
-	UID       string
-	Title     string
-	Note      string
-	DueAt     *time.Time
-	Completed bool
-	RRule     string
+	UID          string
+	Title        string
+	Note         string
+	Location     string
+	URL          string
+	StartsAt     *time.Time
+	DueAt        *time.Time
+	Completed    bool
+	Percent      int
+	Priority     int
+	RRule        string
+	Group        string
+	Tags         []string
+	ParentUID    string
+	Reminders    []models.Reminder
+	CompletedAt  *time.Time
 }
 
 var errNoTodo = errors.New("no VTODO in calendar")
+
+func parseRemindersJSON(s string) []models.Reminder {
+	return models.ParseReminders(s)
+}
 
 // ParseTodo extracts the first VTODO component from a calendar.
 func ParseTodo(cal *ical.Calendar) (*parsedTodo, error) {
@@ -111,6 +130,14 @@ func ParseTodo(cal *ical.Calendar) (*parsedTodo, error) {
 		pt.UID, _ = child.Props.Text(ical.PropUID)
 		pt.Title, _ = child.Props.Text(ical.PropSummary)
 		pt.Note, _ = child.Props.Text(ical.PropDescription)
+		pt.Location, _ = child.Props.Text(ical.PropLocation)
+		pt.URL, _ = child.Props.Text(ical.PropURL)
+		if dt := child.Props.Get(ical.PropDateTimeStart); dt != nil {
+			t, err := dt.DateTime(nil)
+			if err == nil {
+				pt.StartsAt = &t
+			}
+		}
 		if due := child.Props.Get(ical.PropDue); due != nil {
 			t, err := due.DateTime(nil)
 			if err != nil {
@@ -121,13 +148,188 @@ func ParseTodo(cal *ical.Calendar) (*parsedTodo, error) {
 		status, _ := child.Props.Text(ical.PropStatus)
 		if strings.EqualFold(status, "COMPLETED") {
 			pt.Completed = true
+		} else if strings.EqualFold(status, "IN-PROCESS") {
+			pt.Percent = 50
+		}
+		if p := child.Props.Get(ical.PropPercentComplete); p != nil {
+			fmt.Sscanf(p.Value, "%d", &pt.Percent)
+		}
+		if p := child.Props.Get(ical.PropPriority); p != nil {
+			fmt.Sscanf(p.Value, "%d", &pt.Priority)
 		}
 		if rp := child.Props.Get(ical.PropRecurrenceRule); rp != nil {
 			pt.RRule = rp.Value
 		}
+		var cats []string
+		for _, p := range child.Props[ical.PropCategories] {
+			cats = append(cats, p.Value)
+		}
+		cat := strings.Join(cats, ",")
+		cat = strings.ReplaceAll(cat, `\,`, ",")
+		parts := strings.Split(cat, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		parts = filterEmpty(parts)
+		if len(parts) > 0 {
+			pt.Group = parts[0]
+		}
+		if len(parts) > 1 {
+			pt.Tags = parts[1:]
+		}
+		if rel := child.Props.Get(ical.PropRelatedTo); rel != nil {
+			pt.ParentUID = rel.Value
+		}
+		if rt, err := child.Props.Text(ical.PropCompleted); err == nil {
+			if t, e := time.Parse(time.RFC3339, rt); e == nil {
+				pt.CompletedAt = &t
+			}
+		}
+		for _, a := range child.Children {
+			if a.Name != ical.CompAlarm {
+				continue
+			}
+			tr := a.Props.Get(ical.PropTrigger)
+			if tr == nil {
+				continue
+			}
+			secs := parseTrigger(tr.Value)
+			if secs >= 0 {
+				continue
+			}
+			secs = -secs
+			switch {
+			case secs%86400 == 0:
+				pt.Reminders = append(pt.Reminders, models.Reminder{Unit: "day", Value: secs / 86400})
+			case secs%3600 == 0:
+				pt.Reminders = append(pt.Reminders, models.Reminder{Unit: "hour", Value: secs / 3600})
+			default:
+				pt.Reminders = append(pt.Reminders, models.Reminder{Unit: "min", Value: secs / 60})
+			}
+		}
 		return pt, nil
 	}
 	return nil, errNoTodo
+}
+
+// parseTrigger parses an iCal TRIGGER duration like "-PT15M" / "-PT1H" / "-P1D"
+// and returns the total seconds (negative = before the event).
+func parseTrigger(v string) int {
+	v = strings.TrimSpace(v)
+	neg := false
+	if strings.HasPrefix(v, "-") {
+		neg = true
+		v = v[1:]
+	}
+	if strings.HasPrefix(v, "+") {
+		v = v[1:]
+	}
+	v = strings.TrimPrefix(v, "P")
+	if v == "" {
+		return 0
+	}
+	secs := 0
+	num := ""
+	mult := 1
+	for _, ch := range v {
+		switch {
+		case ch >= '0' && ch <= '9':
+			num += string(ch)
+		case ch == 'T':
+		case ch == 'W':
+			secs += atoi(num) * 604800
+			num = ""
+		case ch == 'D':
+			secs += atoi(num) * 86400
+			num = ""
+		case ch == 'H':
+			secs += atoi(num) * 3600
+			num = ""
+		case ch == 'M':
+			secs += atoi(num) * 60
+			num = ""
+		case ch == 'S':
+			secs += atoi(num)
+			num = ""
+		default:
+			_ = mult
+		}
+	}
+	if neg {
+		return -secs
+	}
+	return secs
+}
+
+func atoi(s string) int {
+	n := 0
+	for _, ch := range s {
+		n = n*10 + int(ch-'0')
+	}
+	return n
+}
+
+// addAlarms appends VALARM components to a component.
+func addAlarms(comp *ical.Component, base time.Time, reminders []models.Reminder) {
+	for _, r := range reminders {
+		if r.Value <= 0 {
+			continue
+		}
+		trigSecs := -r.Seconds()
+		al := ical.NewComponent(ical.CompAlarm)
+		al.Props.SetText(ical.PropAction, "DISPLAY")
+		al.Props.SetText(ical.PropDescription, "Reminder")
+		t := ical.NewProp(ical.PropTrigger)
+		t.Value = formatTrigger(trigSecs)
+		al.Props.Set(t)
+		comp.Children = append(comp.Children, al)
+	}
+}
+
+// formatTrigger renders a duration in seconds as an iCal duration string.
+func formatTrigger(secs int) string {
+	neg := ""
+	if secs < 0 {
+		neg = "-"
+		secs = -secs
+	}
+	d := secs / 86400
+	secs %= 86400
+	h := secs / 3600
+	secs %= 3600
+	m := secs / 60
+	s := secs % 60
+	out := "P"
+	if d > 0 {
+		out += fmt.Sprintf("%dD", d)
+	}
+	if h > 0 || m > 0 || s > 0 {
+		out += "T"
+		if h > 0 {
+			out += fmt.Sprintf("%dH", h)
+		}
+		if m > 0 {
+			out += fmt.Sprintf("%dM", m)
+		}
+		if s > 0 {
+			out += fmt.Sprintf("%dS", s)
+		}
+	}
+	return neg + out
+}
+
+func tagsToCSV(tags []string) string {
+	return strings.Join(tags, ",")
+}
+
+func filterEmpty(s []string) []string {
+	out := s[:0]
+	for _, v := range s {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func serialize(cal *ical.Calendar) []byte {
@@ -176,6 +378,28 @@ func ParseEvents(cal *ical.Calendar) []parsedEvent {
 			}
 			rid := t.UTC()
 			pe.RecurrenceID = &rid
+		}
+		for _, a := range ev.Children {
+			if a.Name != ical.CompAlarm {
+				continue
+			}
+			tr := a.Props.Get(ical.PropTrigger)
+			if tr == nil {
+				continue
+			}
+			secs := parseTrigger(tr.Value)
+			if secs >= 0 {
+				continue
+			}
+			secs = -secs
+			switch {
+			case secs%86400 == 0:
+				pe.Reminders = append(pe.Reminders, models.Reminder{Unit: "day", Value: secs / 86400})
+			case secs%3600 == 0:
+				pe.Reminders = append(pe.Reminders, models.Reminder{Unit: "hour", Value: secs / 3600})
+			default:
+				pe.Reminders = append(pe.Reminders, models.Reminder{Unit: "min", Value: secs / 60})
+			}
 		}
 		out = append(out, pe)
 	}

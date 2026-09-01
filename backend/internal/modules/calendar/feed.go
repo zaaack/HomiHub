@@ -1,7 +1,9 @@
 package modulecalendar
 
 import (
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/emersion/go-ical"
 	"github.com/gin-gonic/gin"
@@ -94,7 +96,7 @@ func (h *Handler) feedAsMember(c *gin.Context, email, calendarToken string) {
 	cal := BuildCalendar(fam.Name, evs)
 	if scope == "self" {
 		var todos []models.Todo
-		if err := h.app.DB.Where("team_id = ? AND user_id = ? AND due_at IS NOT NULL", fam.ID, user.ID).
+		if err := h.app.DB.Where("team_id = ? AND user_id = ?", fam.ID, user.ID).
 			Order("due_at").Find(&todos).Error; err == nil {
 			for i := range todos {
 				cal.Children = append(cal.Children, todoComponent(&todos[i]))
@@ -109,23 +111,62 @@ func todoComponent(t *models.Todo) *ical.Component {
 	comp.Props.SetText(ical.PropUID, todoUID(t))
 	comp.Props.SetText(ical.PropSummary, t.Title)
 	comp.Props.SetDateTime(ical.PropDateTimeStamp, t.UpdatedAt)
+	if t.StartAt != nil {
+		comp.Props.SetDateTime(ical.PropDateTimeStart, *t.StartAt)
+	}
 	if t.DueAt != nil {
 		comp.Props.SetDateTime(ical.PropDue, *t.DueAt)
+	}
+	if t.Location != "" {
+		comp.Props.SetText(ical.PropLocation, t.Location)
+	}
+	if t.URL != "" {
+		comp.Props.SetText(ical.PropURL, t.URL)
 	}
 	if t.Note != "" {
 		comp.Props.SetText(ical.PropDescription, t.Note)
 	}
+	if t.Group != "" {
+		comp.Props.SetText(ical.PropCategories, t.Group)
+	}
+	if t.Tags != "" {
+		if cat, err := comp.Props.Text(ical.PropCategories); err == nil {
+			comp.Props.SetText(ical.PropCategories, cat+","+t.Tags)
+		}
+	}
+	if t.ParentID != "" {
+		comp.Props.SetText(ical.PropRelatedTo, t.ParentID)
+	}
 	if t.Completed {
 		comp.Props.SetText(ical.PropStatus, "COMPLETED")
 		comp.Props.SetText(ical.PropPercentComplete, "100")
+		if t.CompletedAt != nil {
+			comp.Props.SetDateTime(ical.PropCompleted, *t.CompletedAt)
+		}
 	} else {
-		comp.Props.SetText(ical.PropStatus, "NEEDS-ACTION")
-		comp.Props.SetText(ical.PropPercentComplete, "0")
+		status := "NEEDS-ACTION"
+		if t.Percent > 0 {
+			status = "IN-PROCESS"
+		}
+		comp.Props.SetText(ical.PropStatus, status)
+		comp.Props.SetText(ical.PropPercentComplete, fmt.Sprintf("%d", t.Percent))
+	}
+	if t.Priority > 0 {
+		comp.Props.SetText(ical.PropPriority, fmt.Sprintf("%d", t.Priority))
 	}
 	if t.RRule != "" {
 		p := ical.NewProp(ical.PropRecurrenceRule)
 		p.Value = t.RRule
 		comp.Props.Set(p)
+	}
+	if rem := parseRemindersJSON(t.Reminders); len(rem) > 0 {
+		base := time.Now()
+		if t.StartAt != nil {
+			base = *t.StartAt
+		} else if t.DueAt != nil {
+			base = *t.DueAt
+		}
+		addAlarms(comp, base, rem)
 	}
 	return comp
 }

@@ -1,17 +1,33 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, ChevronRight, Plus, X, Trash2 } from 'lucide-react'
+import { Bell, ChevronLeft, ChevronRight, Plus, X, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
-import type { CalendarEvent, Visibility } from '../types'
+import type { CalendarEvent, Reminder, Visibility } from '../types'
 
 const CATS = ['work', 'school', 'family'] as const
 const VIS = [1, 2, 3] as const
-const REPEAT = [
-  { value: '', labelKey: 'noRepeat' },
-  { value: 'FREQ=DAILY', labelKey: 'daily' },
-  { value: 'FREQ=WEEKLY', labelKey: 'weekly' },
-  { value: 'FREQ=MONTHLY', labelKey: 'monthly' },
+const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6]
+
+const REMINDER_OPTIONS = [
+  { unit: 'min', value: 5 },
+  { unit: 'min', value: 10 },
+  { unit: 'min', value: 15 },
+  { unit: 'min', value: 30 },
+  { unit: 'hour', value: 1 },
+  { unit: 'hour', value: 2 },
+  { unit: 'hour', value: 12 },
+  { unit: 'day', value: 1 },
+  { unit: 'day', value: 2 },
+  { unit: 'day', value: 7 },
 ] as const
+
+function remKey(r: Reminder) {
+  return `${r.unit}:${r.value}`
+}
+
+function fmtReminder(r: Reminder, t: (k: string) => string): string {
+  return `${r.value} ${t(`calendar.remindUnit${r.unit === 'min' ? 'Min' : r.unit === 'hour' ? 'Hour' : 'Day'}`)}`
+}
 
 const catColor: Record<string, string> = {
   work: 'bg-sky-100 text-sky-700',
@@ -35,6 +51,51 @@ function sameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
+type RepeatFreq = 'none' | 'daily' | 'weekly' | 'monthly'
+
+interface RRuleState {
+  freq: RepeatFreq
+  interval: number
+  weekdays: number[]
+  monthDays: number[]
+}
+
+function parseRRule(rrule: string): RRuleState {
+  const s: RRuleState = { freq: 'none', interval: 1, weekdays: [], monthDays: [] }
+  if (!rrule) return s
+  const parts: Record<string, string> = {}
+  for (const seg of rrule.split(';')) {
+    const i = seg.indexOf('=')
+    if (i > 0) parts[seg.slice(0, i).toUpperCase()] = seg.slice(i + 1)
+  }
+  const f = (parts['FREQ'] || '').toLowerCase()
+  if (f === 'daily') s.freq = 'daily'
+  else if (f === 'weekly') s.freq = 'weekly'
+  else if (f === 'monthly') s.freq = 'monthly'
+  s.interval = Number(parts['INTERVAL']) || 1
+  if (parts['BYDAY']) {
+    s.weekdays = parts['BYDAY'].split(',').map((d) => 'MOTUWETHFRSA'.indexOf(d.trim().slice(-2)) / 2).filter((n) => n >= 0)
+  }
+  if (parts['BYMONTHDAY']) {
+    s.monthDays = parts['BYMONTHDAY'].split(',').map((d) => Number(d.trim())).filter((n) => n >= 1 && n <= 31)
+  }
+  return s
+}
+
+function buildRRule(s: RRuleState): string {
+  if (s.freq === 'none') return ''
+  const freq = s.freq === 'daily' ? 'DAILY' : s.freq === 'weekly' ? 'WEEKLY' : 'MONTHLY'
+  let out = `FREQ=${freq}`
+  if (s.interval > 1) out += `;INTERVAL=${s.interval}`
+  if (s.freq === 'weekly' && s.weekdays.length > 0) {
+    out += ';BYDAY=' + s.weekdays.map((d) => 'SU,MO,TU,WE,TH,FR,SA'.split(',')[d]).join(',')
+  }
+  if (s.freq === 'monthly' && s.monthDays.length > 0) {
+    out += ';BYMONTHDAY=' + s.monthDays.join(',')
+  }
+  return out
+}
+
 interface FormState {
   id?: string
   title: string
@@ -44,8 +105,9 @@ interface FormState {
   startsAt: string
   endsAt: string
   allDay: boolean
-  rrule: string
+  repeat: RRuleState
   visibility: Visibility
+  reminders: Reminder[]
 }
 
 const emptyForm = (date: Date): FormState => {
@@ -61,8 +123,9 @@ const emptyForm = (date: Date): FormState => {
     startsAt: fmtLocal(start.toISOString()),
     endsAt: fmtLocal(end.toISOString()),
     allDay: false,
-    rrule: '',
+    repeat: { freq: 'none', interval: 1, weekdays: [], monthDays: [] },
     visibility: 3,
+    reminders: [],
   }
 }
 
@@ -145,8 +208,9 @@ export default function CalendarPage() {
       startsAt: fmtLocal(ev.start),
       endsAt: fmtLocal(ev.end),
       allDay: ev.allDay,
-      rrule: ev.rrule,
+      repeat: parseRRule(ev.rrule),
       visibility: ev.visibility,
+      reminders: ev.reminders ?? [],
     })
   }
 
@@ -162,8 +226,9 @@ export default function CalendarPage() {
         startsAt: new Date(editing.startsAt).toISOString(),
         endsAt: new Date(editing.endsAt).toISOString(),
         allDay: editing.allDay,
-        rrule: editing.rrule,
+        rrule: buildRRule(editing.repeat),
         visibility: editing.visibility,
+        reminders: editing.reminders,
       }
       if (editing.id) {
         await api.put(`/api/v1/events/${editing.id}`, payload)
@@ -190,6 +255,46 @@ export default function CalendarPage() {
   }
 
   const weekdays = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+
+  const toggleReminder = (r: Reminder) => {
+    if (!editing) return
+    const has = editing.reminders.some((x) => remKey(x) === remKey(r))
+    setEditing({
+      ...editing,
+      reminders: has ? editing.reminders.filter((x) => remKey(x) !== remKey(r)) : [...editing.reminders, r],
+    })
+  }
+
+  const toggleWeekday = (d: number) => {
+    if (!editing) return
+    const s = editing.repeat
+    setEditing({
+      ...editing,
+      repeat: {
+        ...s,
+        weekdays: s.weekdays.includes(d) ? s.weekdays.filter((x) => x !== d) : [...s.weekdays, d].sort(),
+      },
+    })
+  }
+
+  const toggleMonthDay = (d: number) => {
+    if (!editing) return
+    const s = editing.repeat
+    setEditing({
+      ...editing,
+      repeat: {
+        ...s,
+        monthDays: s.monthDays.includes(d) ? s.monthDays.filter((x) => x !== d) : [...s.monthDays, d].sort((a, b) => a - b),
+      },
+    })
+  }
+
+  const repeatLabel = (r: RRuleState): string => {
+    if (r.freq === 'none') return t('calendar.noRepeat')
+    if (r.freq === 'daily') return r.interval > 1 ? `${t('calendar.every')}${r.interval}${t('calendar.daysUnit')}` : t('calendar.daily')
+    if (r.freq === 'weekly') return r.interval > 1 ? `${t('calendar.every')}${r.interval}${t('calendar.weeksUnit')}` : t('calendar.weekly')
+    return r.interval > 1 ? `${t('calendar.every')}${r.interval}${t('calendar.monthsUnit')}` : t('calendar.monthly')
+  }
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
@@ -293,7 +398,13 @@ export default function CalendarPage() {
               <div className="mt-0.5 text-xs text-[var(--app-muted)]">
                 {new Date(ev.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} -{' '}
                 {new Date(ev.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                {ev.rrule ? ` · ${t('calendar.weekly')}` : ''}
+                {ev.rrule ? ` · ${repeatLabel(parseRRule(ev.rrule))}` : ''}
+                {ev.reminders && ev.reminders.length > 0 && (
+                  <span className="ml-1 inline-flex items-center gap-0.5">
+                    <Bell size={11} />
+                    {ev.reminders.length}
+                  </span>
+                )}
               </div>
             </div>
           ))}
@@ -369,6 +480,104 @@ export default function CalendarPage() {
                 </div>
               </div>
               <div>
+                <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('calendar.repeat')}</label>
+                <div className="flex items-center gap-2">
+                  <select
+                    className="select flex-1"
+                    value={editing.repeat.freq}
+                    onChange={(e) => setEditing({ ...editing, repeat: { ...editing.repeat, freq: e.target.value as RepeatFreq } })}
+                  >
+                    <option value="none">{t('calendar.noRepeat')}</option>
+                    <option value="daily">{t('calendar.daily')}</option>
+                    <option value="weekly">{t('calendar.weekly')}</option>
+                    <option value="monthly">{t('calendar.monthly')}</option>
+                  </select>
+                  {editing.repeat.freq !== 'none' && (
+                    <div className="flex items-center gap-1 text-xs text-[var(--app-muted)]">
+                      <span>{t('calendar.every')}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={99}
+                        className="input w-16 px-2 py-1 text-center"
+                        value={editing.repeat.interval}
+                        onChange={(e) =>
+                          setEditing({ ...editing, repeat: { ...editing.repeat, interval: Math.max(1, Number(e.target.value) || 1) } })
+                        }
+                      />
+                      <span>
+                        {editing.repeat.freq === 'daily'
+                          ? t('calendar.daysUnit')
+                          : editing.repeat.freq === 'weekly'
+                            ? t('calendar.weeksUnit')
+                            : t('calendar.monthsUnit')}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {editing.repeat.freq === 'weekly' && (
+                <div>
+                  <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('calendar.repeatWeeklyDays')}</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {WEEKDAYS.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => toggleWeekday(d)}
+                        className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
+                          editing.repeat.weekdays.includes(d)
+                            ? 'bg-[var(--app-accent)] text-white'
+                            : 'bg-[var(--app-card-sub)] text-[var(--app-muted)]'
+                        }`}
+                      >
+                        {t(`calendar.week.${weekdays[d]}`)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {editing.repeat.freq === 'monthly' && (
+                <div>
+                  <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('calendar.repeatMonthlyDays')}</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => toggleMonthDay(d)}
+                        className={`h-7 w-7 rounded text-xs transition-colors ${
+                          editing.repeat.monthDays.includes(d)
+                            ? 'bg-[var(--app-accent)] text-white'
+                            : 'bg-[var(--app-card-sub)] text-[var(--app-muted)]'
+                        }`}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('calendar.reminders')}</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {REMINDER_OPTIONS.map((r) => (
+                    <button
+                      key={remKey(r)}
+                      type="button"
+                      onClick={() => toggleReminder(r as unknown as Reminder)}
+                      className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
+                        editing.reminders.some((x) => remKey(x) === remKey(r as unknown as Reminder))
+                          ? 'bg-[var(--app-accent)] text-white'
+                          : 'bg-[var(--app-card-sub)] text-[var(--app-muted)]'
+                      }`}
+                    >
+                      {fmtReminder(r as unknown as Reminder, t)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
                 <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('calendar.location')}</label>
                 <input
                   className="input"
@@ -383,20 +592,6 @@ export default function CalendarPage() {
                   value={editing.description}
                   onChange={(e) => setEditing({ ...editing, description: e.target.value })}
                 />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('calendar.repeat')}</label>
-                <select
-                  className="select"
-                  value={editing.rrule}
-                  onChange={(e) => setEditing({ ...editing, rrule: e.target.value })}
-                >
-                  {REPEAT.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {t(`calendar.${r.labelKey}`)}
-                    </option>
-                  ))}
-                </select>
               </div>
               <div className="flex items-center gap-2 pt-1">
                 <input

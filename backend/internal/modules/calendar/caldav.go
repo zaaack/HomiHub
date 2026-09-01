@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -139,12 +140,12 @@ func eventUID(p string) string {
 }
 
 func eventEtag(ev *models.CalendarEvent) string {
-	sum := sha256.Sum256([]byte(ev.UID + ev.StartsAt.String() + ev.RRule + ev.Title + ev.UpdatedAt.String()))
+	sum := sha256.Sum256([]byte(ev.UID + ev.StartsAt.String() + ev.RRule + ev.Title + ev.Location + ev.Reminders + ev.UpdatedAt.String()))
 	return hex.EncodeToString(sum[:8])
 }
 
 func todoEtag(t *models.Todo) string {
-	sum := sha256.Sum256([]byte(todoUID(t) + t.Title + t.RRule + t.UpdatedAt.String()))
+	sum := sha256.Sum256([]byte(todoUID(t) + t.Title + t.RRule + t.Group + fmt.Sprintf("%d", t.Priority) + t.Reminders + t.UpdatedAt.String()))
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -339,6 +340,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 		ev.RRule = pe.RRule
 		ev.RecurrenceID = pe.RecurrenceID
 		ev.Visibility = vis
+		ev.Reminders = remindersJSON(pe.Reminders)
 		ev.UpdatedAt = time.Now()
 		if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Save(&ev).Error; err != nil {
 			return nil, fmt.Errorf("caldav save: %w", err)
@@ -359,6 +361,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 			RRule:        pe.RRule,
 			RecurrenceID: pe.RecurrenceID,
 			Visibility:   vis,
+			Reminders:    remindersJSON(pe.Reminders),
 		}
 		if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Create(&ev).Error; err != nil {
 			return nil, fmt.Errorf("caldav create: %w", err)
@@ -382,24 +385,54 @@ func (b *davBackend) putTodo(ctx context.Context, p, calName string, pt *parsedT
 		}
 		t.Title = pt.Title
 		t.Note = pt.Note
+		t.Location = pt.Location
+		t.URL = pt.URL
+		t.StartAt = pt.StartsAt
 		t.DueAt = pt.DueAt
 		t.Completed = pt.Completed
+		t.Percent = pt.Percent
+		t.Priority = pt.Priority
 		t.RRule = pt.RRule
+		t.Group = pt.Group
+		t.Tags = tagsToCSV(pt.Tags)
+		t.ParentID = pt.ParentUID
+		t.CompletedAt = pt.CompletedAt
+		if len(pt.Reminders) > 0 {
+			if b, err := json.Marshal(pt.Reminders); err == nil {
+				t.Reminders = string(b)
+			}
+		} else {
+			t.Reminders = ""
+		}
 		t.UpdatedAt = time.Now()
 		if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Save(&t).Error; err != nil {
 			return nil, fmt.Errorf("caldav save todo: %w", err)
 		}
 	} else {
 		t = models.Todo{
-			ID:        uuid.Must(uuid.NewV7()).String(),
-			TeamID:  s.Team.ID,
-			UserID:    s.User.ID,
-			UID:       pt.UID,
-			Title:     pt.Title,
-			Note:      pt.Note,
-			DueAt:     pt.DueAt,
-			Completed: pt.Completed,
-			RRule:     pt.RRule,
+			ID:          uuid.Must(uuid.NewV7()).String(),
+			TeamID:      s.Team.ID,
+			UserID:      s.User.ID,
+			UID:         pt.UID,
+			Title:       pt.Title,
+			Note:        pt.Note,
+			Location:    pt.Location,
+			URL:         pt.URL,
+			StartAt:     pt.StartsAt,
+			DueAt:       pt.DueAt,
+			Completed:   pt.Completed,
+			Percent:     pt.Percent,
+			Priority:    pt.Priority,
+			RRule:       pt.RRule,
+			Group:       pt.Group,
+			Tags:        tagsToCSV(pt.Tags),
+			ParentID:    pt.ParentUID,
+			CompletedAt: pt.CompletedAt,
+		}
+		if len(pt.Reminders) > 0 {
+			if b, err := json.Marshal(pt.Reminders); err == nil {
+				t.Reminders = string(b)
+			}
 		}
 		if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Create(&t).Error; err != nil {
 			return nil, fmt.Errorf("caldav create todo: %w", err)

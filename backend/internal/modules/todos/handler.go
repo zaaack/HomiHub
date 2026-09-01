@@ -1,6 +1,7 @@
 package moduletodos
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -37,7 +38,8 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 
 type todoView struct {
 	models.Todo
-	HasDate bool `json:"hasDate"`
+	HasDate   bool             `json:"hasDate"`
+	Reminders []models.Reminder `json:"reminders"`
 }
 
 // list returns the current user's private todos plus todos shared to the family.
@@ -51,18 +53,39 @@ func (h *Handler) list(c *gin.Context) {
 	}
 	view := make([]todoView, 0, len(todos))
 	for _, t := range todos {
-		view = append(view, todoView{Todo: t, HasDate: t.DueAt != nil})
+		view = append(view, todoView{Todo: t, HasDate: t.DueAt != nil, Reminders: models.ParseReminders(t.Reminders)})
 	}
 	httpx.OK(c, view)
 }
 
 type todoInput struct {
-	Title     string  `json:"title"`
-	Note      string  `json:"note"`
-	DueAt     *string `json:"dueAt"`
-	RRule     string  `json:"rrule"`
-	Shared    *bool   `json:"shared"`
-	Completed *bool   `json:"completed"`
+	Title     string            `json:"title"`
+	Note      string            `json:"note"`
+	DueAt     *string           `json:"dueAt"`
+	StartAt   *string           `json:"startAt"`
+	RRule     string            `json:"rrule"`
+	Group     string            `json:"group"`
+	Tags      string            `json:"tags"`
+	Priority  int               `json:"priority"`
+	Location  string            `json:"location"`
+	URL       string            `json:"url"`
+	Percent   int               `json:"percent"`
+	ParentID  string            `json:"parentId"`
+	Shared    *bool             `json:"shared"`
+	Completed *bool             `json:"completed"`
+	Reminders []models.Reminder `json:"reminders"`
+}
+
+func parseOptTime(s *string) (*time.Time, bool) {
+	if s == nil {
+		return nil, true
+	}
+	t, err := time.Parse(time.RFC3339, *s)
+	if err != nil {
+		return nil, false
+	}
+	u := t.UTC()
+	return &u, true
 }
 
 func normalizeTodo(in *todoInput) bool {
@@ -71,22 +94,31 @@ func normalizeTodo(in *todoInput) bool {
 		return false
 	}
 	if in.RRule != "" {
-		rr, err := rrule.StrToRRule(in.RRule)
-		f := rrule.Frequency(0)
-		if err == nil {
-			f = rr.OrigOptions.Freq
-		}
-		if err != nil || (f != rrule.DAILY && f != rrule.WEEKLY && f != rrule.MONTHLY) {
+		if _, err := rrule.StrToRRule(in.RRule); err != nil {
 			return false
 		}
 	}
-	if in.DueAt != nil {
-		t, err := time.Parse(time.RFC3339, *in.DueAt)
-		if err != nil {
+	if _, ok := parseOptTime(in.DueAt); !ok {
+		return false
+	}
+	if _, ok := parseOptTime(in.StartAt); !ok {
+		return false
+	}
+	if in.Priority < 0 || in.Priority > 9 {
+		return false
+	}
+	if in.Percent < 0 || in.Percent > 100 {
+		return false
+	}
+	for _, r := range in.Reminders {
+		if r.Value <= 0 {
 			return false
 		}
-		s := t.UTC().Format(time.RFC3339)
-		in.DueAt = &s
+		switch r.Unit {
+		case "min", "hour", "day":
+		default:
+			return false
+		}
 	}
 	return true
 }
@@ -101,27 +133,40 @@ func (h *Handler) create(c *gin.Context) {
 	todo := models.Todo{
 		ID:       uuid.Must(uuid.NewV7()).String(),
 		UID:      "todo-" + uuid.Must(uuid.NewV7()).String(),
-		TeamID: cl.TeamID,
+		TeamID:   cl.TeamID,
 		UserID:   cl.UserID,
 		Title:    in.Title,
 		Note:     in.Note,
 		RRule:    in.RRule,
+		Group:    in.Group,
+		Tags:     in.Tags,
+		Priority: in.Priority,
+		Location: in.Location,
+		URL:      in.URL,
+		Percent:  in.Percent,
+		ParentID: in.ParentID,
 	}
-	if in.DueAt != nil {
-		t, _ := time.Parse(time.RFC3339, *in.DueAt)
-		todo.DueAt = &t
+	todo.StartAt, _ = parseOptTime(in.StartAt)
+	todo.DueAt, _ = parseOptTime(in.DueAt)
+	if len(in.Reminders) > 0 {
+		if b, err := json.Marshal(in.Reminders); err == nil {
+			todo.Reminders = string(b)
+		}
 	}
 	if in.Shared != nil {
 		todo.Shared = *in.Shared
 	}
-	if in.Completed != nil {
-		todo.Completed = *in.Completed
+	if in.Completed != nil && *in.Completed {
+		todo.Completed = true
+		now := time.Now().UTC()
+		todo.CompletedAt = &now
+		todo.Percent = 100
 	}
 	if err := middleware.DB(c).Create(&todo).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "create_failed")
 		return
 	}
-	httpx.Created(c, todo)
+	httpx.Created(c, todoView{Todo: todo, HasDate: todo.DueAt != nil, Reminders: in.Reminders})
 }
 
 func (h *Handler) update(c *gin.Context) {
@@ -142,21 +187,42 @@ func (h *Handler) update(c *gin.Context) {
 		return
 	}
 	updates := map[string]any{
-		"title": in.Title,
-		"note":  in.Note,
-		"r_rule": in.RRule,
+		"title":    in.Title,
+		"note":     in.Note,
+		"r_rule":   in.RRule,
+		"group":    in.Group,
+		"tags":     in.Tags,
+		"priority": in.Priority,
+		"location": in.Location,
+		"url":      in.URL,
+		"percent":  in.Percent,
+		"parent_id": in.ParentID,
+	}
+	if len(in.Reminders) > 0 {
+		if b, err := json.Marshal(in.Reminders); err == nil {
+			updates["reminders"] = string(b)
+		}
+	} else {
+		updates["reminders"] = ""
+	}
+	if st, ok := parseOptTime(in.StartAt); ok {
+		updates["start_at"] = st
+	}
+	if du, ok := parseOptTime(in.DueAt); ok {
+		updates["due_at"] = du
 	}
 	if in.Shared != nil {
 		updates["shared"] = *in.Shared
 	}
-	if in.DueAt != nil {
-		t, _ := time.Parse(time.RFC3339, *in.DueAt)
-		updates["due_at"] = t
-	} else {
-		updates["due_at"] = nil
-	}
 	if in.Completed != nil {
 		updates["completed"] = *in.Completed
+		if *in.Completed {
+			updates["percent"] = 100
+			now := time.Now().UTC()
+			updates["completed_at"] = now
+		} else {
+			updates["completed_at"] = nil
+		}
 	}
 	if err := middleware.DB(c).Model(&models.Todo{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")
@@ -164,7 +230,7 @@ func (h *Handler) update(c *gin.Context) {
 	}
 	var todo models.Todo
 	middleware.DB(c).First(&todo, "id = ?", id)
-	httpx.OK(c, todo)
+	httpx.OK(c, todoView{Todo: todo, HasDate: todo.DueAt != nil, Reminders: models.ParseReminders(todo.Reminders)})
 }
 
 func (h *Handler) toggle(c *gin.Context) {
@@ -178,13 +244,22 @@ func (h *Handler) toggle(c *gin.Context) {
 		httpx.ForbiddenT(c, "forbidden")
 		return
 	}
-	if err := middleware.DB(c).Model(&todo).Update("completed", !todo.Completed).Error; err != nil {
+	updates := map[string]any{"completed": !todo.Completed}
+	if !todo.Completed {
+		updates["percent"] = 100
+		now := time.Now().UTC()
+		updates["completed_at"] = now
+	} else {
+		updates["percent"] = 0
+		updates["completed_at"] = nil
+	}
+	if err := middleware.DB(c).Model(&todo).Updates(updates).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")
 		return
 	}
 	var updated models.Todo
 	middleware.DB(c).First(&updated, "id = ?", c.Param("id"))
-	httpx.OK(c, updated)
+	httpx.OK(c, todoView{Todo: updated, HasDate: updated.DueAt != nil, Reminders: models.ParseReminders(updated.Reminders)})
 }
 
 func (h *Handler) delete(c *gin.Context) {

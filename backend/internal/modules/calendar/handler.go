@@ -1,6 +1,7 @@
 package modulecalendar
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -43,15 +44,16 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 }
 
 type eventInput struct {
-	Title       string `json:"title"`
-	Category    string `json:"category"`
-	Location    string `json:"location"`
-	Description string `json:"description"`
-	StartsAt    string `json:"startsAt"`
-	EndsAt      string `json:"endsAt"`
-	AllDay      bool   `json:"allDay"`
-	RRule       string `json:"rrule"`
-	Visibility  int    `json:"visibility"`
+	Title       string            `json:"title"`
+	Category    string            `json:"category"`
+	Location    string            `json:"location"`
+	Description string            `json:"description"`
+	StartsAt    string            `json:"startsAt"`
+	EndsAt      string            `json:"endsAt"`
+	AllDay      bool              `json:"allDay"`
+	RRule       string            `json:"rrule"`
+	Visibility  int               `json:"visibility"`
+	Reminders   []models.Reminder `json:"reminders"`
 }
 
 func normalize(input *eventInput) (time.Time, time.Time, bool) {
@@ -76,15 +78,38 @@ func normalize(input *eventInput) (time.Time, time.Time, bool) {
 	if input.Visibility < models.VisibilityPrivate || input.Visibility > models.VisibilityTeam {
 		input.Visibility = models.VisibilityTeam
 	}
+	for _, r := range input.Reminders {
+		if r.Value <= 0 {
+			return time.Time{}, time.Time{}, false
+		}
+		switch r.Unit {
+		case "min", "hour", "day":
+		default:
+			return time.Time{}, time.Time{}, false
+		}
+	}
 	return start, end, true
 }
 
 type eventView struct {
 	models.CalendarEvent
-	Start  time.Time `json:"start"`
-	End    time.Time `json:"end"`
-	Single bool      `json:"single"`
-	Source string    `json:"source,omitempty"`
+	Start     time.Time          `json:"start"`
+	End       time.Time          `json:"end"`
+	Single    bool               `json:"single"`
+	Source    string             `json:"source,omitempty"`
+	Reminders []models.Reminder  `json:"reminders"`
+}
+
+// remindersJSON serializes a reminder list to the model's JSON column.
+func remindersJSON(rs []models.Reminder) string {
+	if len(rs) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(rs)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func occurrenceView(ev *models.CalendarEvent, start, end time.Time) eventView {
@@ -93,6 +118,7 @@ func occurrenceView(ev *models.CalendarEvent, start, end time.Time) eventView {
 		Start:         start,
 		End:           end,
 		Single:        ev.RRule == "",
+		Reminders:     parseRemindersJSON(ev.Reminders),
 	}
 }
 
@@ -251,6 +277,11 @@ func (h *Handler) create(c *gin.Context) {
 		RRule:      in.RRule,
 		Visibility: in.Visibility,
 	}
+	if len(in.Reminders) > 0 {
+		if b, err := json.Marshal(in.Reminders); err == nil {
+			ev.Reminders = string(b)
+		}
+	}
 	if err := middleware.DB(c).Create(&ev).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "create_failed")
 		return
@@ -289,6 +320,7 @@ func (h *Handler) update(c *gin.Context) {
 		"all_day":     in.AllDay,
 		"r_rule":      in.RRule,
 		"visibility":  in.Visibility,
+		"reminders":   remindersJSON(in.Reminders),
 	}).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")
 		return
