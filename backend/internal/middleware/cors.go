@@ -72,7 +72,7 @@ func (p *CORSProvider) Handler() gin.HandlerFunc {
 			c.Header("Access-Control-Allow-Credentials", "true")
 			c.Header("Access-Control-Allow-Methods",
 				"GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, "+
-					"PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK, REPORT")
+					"PROPFIND, PROPPATCH, MKCOL, MKCALENDAR, COPY, MOVE, LOCK, UNLOCK, REPORT")
 			c.Header("Access-Control-Allow-Headers",
 				"Authorization, Content-Type, Range, Depth, Destination, "+
 					"Overwrite, If-Match, If-None-Match, Brief, Prefer")

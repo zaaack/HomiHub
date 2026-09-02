@@ -72,11 +72,25 @@ type Invite struct {
 	CreatedAt time.Time  `json:"createdAt"`
 }
 
+// Calendar stores per-user/team calendar metadata for MKCALENDAR support.
+type Calendar struct {
+	ID          string    `gorm:"primaryKey;size:36" json:"id"`
+	TeamID      string    `gorm:"size:36;index:idx_cal_name,unique;index" json:"teamId"`
+	Name        string    `gorm:"size:64;index:idx_cal_name,unique" json:"name"` // path segment, unique per team
+	DisplayName string    `gorm:"size:255" json:"displayName"`
+	Description string    `gorm:"size:2000" json:"description"`
+	Color       string    `gorm:"size:32" json:"color"`
+	OwnerID     string    `gorm:"size:36" json:"ownerId"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
 type CalendarEvent struct {
 	ID          string     `gorm:"primaryKey;size:36" json:"id"`
-	TeamID    string     `gorm:"size:36;index" json:"teamId"`
+	TeamID      string     `gorm:"size:36;index" json:"teamId"`
 	UserID      string     `gorm:"size:36;index" json:"userId"`
 	UID         string     `gorm:"size:64;index" json:"uid"`
+	Calendar    string     `gorm:"size:64;default:team;index" json:"calendar"` // calendar name (self, team, or custom)
 	Title       string     `gorm:"size:255;not null" json:"title"`
 	Category    string     `gorm:"size:16;not null" json:"category"`
 	Location    string     `gorm:"size:255" json:"location"`
@@ -116,7 +130,7 @@ type Reminder struct {
 type CalendarSyncLog struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement"`
 	TeamID    string    `gorm:"size:36;index:idx_cal_sync,priority:1"`
-	Calendar  string    `gorm:"size:16;index:idx_cal_sync,priority:2"` // "self" or "team"
+	Calendar  string    `gorm:"size:64;index:idx_cal_sync,priority:2"` // "self", "team", or custom calendar name
 	Seq       int64
 	Href      string    `gorm:"size:512"`
 	Etag      string    `gorm:"size:64"`

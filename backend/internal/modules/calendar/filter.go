@@ -35,7 +35,7 @@ func filterCalendarObjects(query *caldav.CalendarQuery, objs []caldav.CalendarOb
 
 // matchCIFilter mirrors caldav.match with case-insensitive text matching.
 func matchCIFilter(filter caldav.CompFilter, comp *ical.Component) (bool, error) {
-	if comp.Name != filter.Name {
+	if filter.Name != "" && comp.Name != filter.Name {
 		return filter.IsNotDefined, nil
 	}
 	for _, compFilter := range filter.Comps {

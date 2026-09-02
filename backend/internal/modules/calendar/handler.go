@@ -328,6 +328,7 @@ func (h *Handler) create(c *gin.Context) {
 		RRule:       in.RRule,
 		ExDate:      exDatesJoinValEx(in.ExDates),
 		Visibility:  in.Visibility,
+		Calendar:    calForVisibility(in.Visibility),
 	}
 	if len(in.Reminders) > 0 {
 		if b, err := json.Marshal(in.Reminders); err == nil {
@@ -342,13 +343,20 @@ func (h *Handler) create(c *gin.Context) {
 	httpx.Created(c, occurrenceView(&ev, ev.StartsAt, ev.EndsAt))
 }
 
+// calForVisibility maps an event visibility to its calendar name.
+func calForVisibility(v int) string {
+	if v == models.VisibilityPrivate {
+		return calSelf
+	}
+	return calTeam
+}
+
 // recordEventSync bumps the CalDAV sync log for an event created/updated via
-// the REST API so external clients see it through sync-collection. Private
-// events live in the self calendar, team/busy events in the team calendar.
+// the REST API so external clients see it through sync-collection.
 func (h *Handler) recordEventSync(ev *models.CalendarEvent, deleted bool) {
-	cal := calTeam
-	if ev.Visibility == models.VisibilityPrivate {
-		cal = calSelf
+	cal := ev.Calendar
+	if cal == "" {
+		cal = calForVisibility(ev.Visibility)
 	}
 	// Determine the calendar via the event's ownership and visibility.
 	user := models.User{}
@@ -394,6 +402,7 @@ func (h *Handler) update(c *gin.Context) {
 		"r_rule":      in.RRule,
 		"ex_date":     exDatesJoinValEx(in.ExDates),
 		"visibility":  in.Visibility,
+		"calendar":    calForVisibility(in.Visibility),
 		"reminders":   remindersJSON(in.Reminders),
 	}).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")

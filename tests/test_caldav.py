@@ -22,14 +22,8 @@ from harness import stop_server, start_server, clean_env, register_user, TEST_HO
 #  - sync-token is implemented via a custom wrapper (sync.go); removed from allowlist
 #  - case-insensitive text-match (i;ascii-casemap) implemented via a local go-webdav fork (vendor/go-webdav)
 KNOWN_DEVIATIONS = {
-    "create-calendar": "MKCALENDAR is only RECOMMENDED by RFC4791; we expose a pre-created per-user calendar",
-    # observed 'full' while spec default is 'unsupported': harmless, we do auto-create
-    "create-calendar.auto": "creating a calendar on demand is supported (bonus)",
     "save-load.journal": "VJOURNAL rejected by design (409 precondition)",
-    "search.recurrences.expanded": "expand attribute not implemented (python-caldav expands client-side anyway)",
-    "search.recurrences.expanded.event": "expand attribute not implemented (python-caldav expands client-side anyway)",
-    "search.recurrences.expanded.todo": "expand attribute not implemented (python-caldav expands client-side anyway)",
-    "search.recurrences.expanded.exception": "expand attribute not implemented (python-caldav expands client-side anyway)",
+    "search.recurrences.expanded.todo": "expand attribute on VTODO not implemented (VEVENT done)",
     "search.comp-type.optional": "comp-type omitted search yields unexpected result set; the tester itself marks this inconclusive (TODO in its source)",
     "scheduling": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
     "scheduling.mailbox": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",

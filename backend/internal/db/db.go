@@ -42,6 +42,7 @@ func Migrate(conn *gorm.DB) error {
 		&models.TeamMember{},
 		&models.Token{},
 		&models.Invite{},
+		&models.Calendar{},
 		&models.CalendarEvent{},
 		&models.Todo{},
 		&models.CalendarSyncLog{},

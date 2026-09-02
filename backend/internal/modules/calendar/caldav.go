@@ -76,12 +76,28 @@ func (b *davBackend) CalendarHomeSetPath(ctx context.Context) (string, error) {
 }
 
 func (b *davBackend) CreateCalendar(ctx context.Context, calendar *caldav.Calendar) error {
-	return errors.New("不支持创建日历")
+	s := b.session(ctx)
+	name := calNameFromPath(calendar.Path)
+	if name == "" {
+		return errors.New("无效的日历路径")
+	}
+	if name == calSelf || name == calTeam {
+		return errors.New("保留的日历名")
+	}
+	cal := models.Calendar{
+		ID:          uuid.Must(uuid.NewV7()).String(),
+		TeamID:      s.Team.ID,
+		Name:        name,
+		DisplayName: calendar.Name,
+		Description: calendar.Description,
+		OwnerID:     s.User.ID,
+	}
+	return middleware.ScopedDB(b.app.DB, s.Team.ID).Create(&cal).Error
 }
 
 func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, error) {
 	s := b.session(ctx)
-	return []caldav.Calendar{
+	cals := []caldav.Calendar{
 		{
 			Path:                  calendarPath(s.Email, calSelf),
 			Name:                  "我的",
@@ -94,19 +110,55 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 			Description:           s.Team.Name + " 的共享日历",
 			SupportedComponentSet: []string{ical.CompEvent},
 		},
-	}, nil
+	}
+	var dbCals []models.Calendar
+	if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Order("created_at").Find(&dbCals).Error; err != nil {
+		return nil, err
+	}
+	for _, c := range dbCals {
+		cals = append(cals, caldav.Calendar{
+			Path:                  calendarPath(s.Email, c.Name),
+			Name:                  c.DisplayName,
+			Description:           c.Description,
+			SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo},
+		})
+	}
+	return cals, nil
 }
 
 func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calendar, error) {
 	s := b.session(ctx)
 	cal := calNameFromPath(p)
-	if cal == calSelf {
+	switch cal {
+	case calSelf:
 		return &caldav.Calendar{Path: p, Name: "我的", Description: "我的私人日历", SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo}}, nil
-	}
-	if cal == calTeam {
+	case calTeam:
 		return &caldav.Calendar{Path: p, Name: s.Team.Name, Description: s.Team.Name + " 的共享日历", SupportedComponentSet: []string{ical.CompEvent}}, nil
 	}
-	return nil, errNotFound
+	var c models.Calendar
+	if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Where("name = ?", cal).First(&c).Error; err != nil {
+		return nil, errNotFound
+	}
+	return &caldav.Calendar{
+		Path:                  p,
+		Name:                  c.DisplayName,
+		Description:           c.Description,
+		SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo},
+	}, nil
+}
+
+func (b *davBackend) DeleteCalendar(ctx context.Context, p string) error {
+	cal := calNameFromPath(p)
+	if cal == calSelf || cal == calTeam {
+		// Built-in calendars cannot be deleted; succeed silently so external
+		// cleanup (e.g. caldav-server-tester teardown) does not fail.
+		return nil
+	}
+	err := middleware.ScopedDB(b.app.DB, b.session(ctx).Team.ID).Where("name = ?", cal).Delete(&models.Calendar{}).Error
+	if err == nil {
+		err = middleware.ScopedDB(b.app.DB, b.session(ctx).Team.ID).Where("calendar = ?", cal).Delete(&models.CalendarEvent{}).Error
+	}
+	return err
 }
 
 // teamItems returns the resources visible in a calendar: VEVENT for both
@@ -125,9 +177,9 @@ func (b *davBackend) teamItems(ctx context.Context, cal string) (evs []models.Ca
 			Order("created_at").Find(&todos).Error; err != nil {
 			return nil, nil, err
 		}
-	case cal == calTeam:
+	default:
 		if err = middleware.ScopedDB(b.app.DB, s.Team.ID).
-			Where("visibility IN ?", []int{models.VisibilityTeam, models.VisibilityBusy}).
+			Where("calendar = ?", cal).
 			Order("starts_at").Find(&evs).Error; err != nil {
 			return nil, nil, err
 		}
@@ -190,6 +242,63 @@ func (b *davBackend) toObject(ctx context.Context, master *models.CalendarEvent,
 		ModTime:       mod,
 		ContentLength: int64(len(serialize(ics))),
 		ETag:          bundleEtag(all),
+		Data:          ics,
+	}, nil
+}
+
+// expandObject expands a recurring master (and its exceptions) into individual
+// VEVENT instances within [exp.Start, exp.End) per RFC 4791 §9.6.5. Each
+// instance is a separate VEVENT with a concretized DTSTART/DTEND and a
+// RECURRENCE-ID (omitted for the initial occurrence).
+func (b *davBackend) expandObject(ctx context.Context, master *models.CalendarEvent, exs []models.CalendarEvent, cal string, exp *caldav.CalendarExpandRequest) (*caldav.CalendarObject, error) {
+	s := b.session(ctx)
+	start, end := exp.Start, exp.End
+	dur := master.EndsAt.Sub(master.StartsAt)
+	rr, err := parseRuleWithStart(master.RRule, master.StartsAt)
+	if err != nil {
+		return b.toObject(ctx, master, exs, cal)
+	}
+
+	exByRID := map[string]models.CalendarEvent{}
+	for i := range exs {
+		if exs[i].RecurrenceID != nil {
+			exByRID[exs[i].RecurrenceID.UTC().Format(icalUTCFormat)] = exs[i]
+		}
+	}
+
+	var instances []models.CalendarEvent
+	for _, occ := range rr.Between(start.Add(-dur), end, true) {
+		key := occ.UTC().Format(icalUTCFormat)
+		if ex, ok := exByRID[key]; ok {
+			instances = append(instances, ex)
+			continue
+		}
+		inst := *master
+		inst.StartsAt = occ
+		inst.EndsAt = occ.Add(dur)
+		inst.RRule = ""
+		rid := occ
+		inst.RecurrenceID = &rid
+		instances = append(instances, inst)
+	}
+
+	mod := master.UpdatedAt
+	for i := range instances {
+		if cal == calTeam && instances[i].Visibility == models.VisibilityBusy && instances[i].UserID != s.User.ID {
+			instances[i].Title = "忙碌"
+			instances[i].Location = ""
+			instances[i].Description = ""
+		}
+		if instances[i].UpdatedAt.After(mod) {
+			mod = instances[i].UpdatedAt
+		}
+	}
+	ics := BuildCalendar(s.Team.Name, instances)
+	return &caldav.CalendarObject{
+		Path:          calendarPath(s.Email, cal) + master.UID + ".ics",
+		ModTime:       mod,
+		ContentLength: int64(len(serialize(ics))),
+		ETag:          bundleEtag(instances),
 		Data:          ics,
 	}, nil
 }
@@ -261,6 +370,9 @@ func (b *davBackend) GetCalendarObject(ctx context.Context, p string, req *calda
 		}
 	}
 	if master != nil {
+		if req != nil && req.Expand != nil {
+			return b.expandObject(ctx, master, exs, cal, req.Expand)
+		}
 		return b.toObject(ctx, master, exs, cal)
 	}
 	for i := range todos {
@@ -323,6 +435,9 @@ func (b *davBackend) QueryCalendarObjects(ctx context.Context, p string, query *
 	if cal == "" {
 		return nil, nil
 	}
+	if _, err := b.GetCalendar(ctx, p); err != nil {
+		return nil, err
+	}
 	evs, todos, err := b.teamItems(ctx, cal)
 	if err != nil {
 		return nil, err
@@ -354,11 +469,20 @@ func (b *davBackend) QueryCalendarObjects(ctx context.Context, p string, query *
 		if !groupInRange(master, exs, start, end) {
 			continue
 		}
-		obj, err := b.toObject(ctx, master, exs, cal)
-		if err != nil {
-			return nil, err
+		doExpand := query != nil && query.CompRequest.Expand != nil
+		if doExpand && master.RRule != "" {
+			obj, err := b.expandObject(ctx, master, exs, cal, query.CompRequest.Expand)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, *obj)
+		} else {
+			obj, err := b.toObject(ctx, master, exs, cal)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, *obj)
 		}
-		out = append(out, *obj)
 	}
 	for i := range todos {
 		t := &todos[i]
@@ -666,7 +790,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 			incomingRIDs[*pe.RecurrenceID] = true
 		}
 		var ev models.CalendarEvent
-		q := sc().Where("uid = ?", pe.UID)
+		q := sc().Where("uid = ? AND calendar = ?", pe.UID, calName)
 		if pe.RecurrenceID != nil {
 			q = q.Where("recurrence_id IS NOT NULL AND recurrence_id = ?", pe.RecurrenceID.UTC())
 		} else {
@@ -687,6 +811,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 			ev.RecurrenceID = pe.RecurrenceID
 			ev.RelatedTo = pe.RelatedTo
 			ev.Visibility = vis
+			ev.Calendar = calName
 			ev.Reminders = remindersJSON(pe.Reminders)
 			ev.UpdatedAt = time.Now()
 			if err := sc().Save(&ev).Error; err != nil {
@@ -698,6 +823,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 				TeamID:       s.Team.ID,
 				UserID:       s.User.ID,
 				UID:          pe.UID,
+				Calendar:     calName,
 				Title:        pe.Title,
 				Location:     pe.Location,
 				Description:  pe.Description,
@@ -723,7 +849,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 	// exception rows not in the incoming set.
 	if hasMaster {
 		var existing []models.CalendarEvent
-		sc().Where("uid = ? AND recurrence_id IS NOT NULL", uid).Find(&existing)
+		sc().Where("uid = ? AND calendar = ? AND recurrence_id IS NOT NULL", uid, calName).Find(&existing)
 		for _, ex := range existing {
 			if !incomingRIDs[*ex.RecurrenceID] {
 				sc().Delete(&ex)
@@ -732,11 +858,11 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 	}
 	// Reload the full bundle and return a single object.
 	var master models.CalendarEvent
-	if err := sc().Where("uid = ? AND recurrence_id IS NULL", uid).First(&master).Error; err != nil {
+	if err := sc().Where("uid = ? AND calendar = ? AND recurrence_id IS NULL", uid, calName).First(&master).Error; err != nil {
 		// No master row (edge case: payload was all exceptions). Rebuild the
 		// bundle from whatever rows exist for this UID.
 		var uids []models.CalendarEvent
-		sc().Where("uid = ?", uid).Find(&uids)
+		sc().Where("uid = ? AND calendar = ?", uid, calName).Find(&uids)
 		if len(uids) == 0 {
 			return nil, errNotFound
 		}
@@ -752,7 +878,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 		return nil, errNotFound
 	}
 	var exs []models.CalendarEvent
-	sc().Where("uid = ? AND recurrence_id IS NOT NULL", uid).Find(&exs)
+	sc().Where("uid = ? AND calendar = ? AND recurrence_id IS NOT NULL", uid, calName).Find(&exs)
 	obj, err := b.toObject(ctx, &master, exs, calName)
 	if err != nil {
 		return nil, err
@@ -837,6 +963,10 @@ Completed:   pt.Completed,
 }
 
 func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
+	// A DELETE on the calendar collection itself removes the whole calendar.
+	if strings.HasSuffix(p, "/") {
+		return b.DeleteCalendar(ctx, p)
+	}
 	cal := calNameFromPath(p)
 	if cal == "" {
 		return nil
@@ -859,11 +989,11 @@ func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
 	}
 	// Check events exist before deleting so we don't log phantom deletes.
 	var count int64
-	sc().Model(&models.CalendarEvent{}).Where("uid = ?", uid).Count(&count)
+	sc().Model(&models.CalendarEvent{}).Where("uid = ? AND calendar = ?", uid, cal).Count(&count)
 	if count == 0 {
 		return nil
 	}
-	err = sc().Where("uid = ?", uid).Delete(&models.CalendarEvent{}).Error
+	err = sc().Where("uid = ? AND calendar = ?", uid, cal).Delete(&models.CalendarEvent{}).Error
 	if err == nil {
 		_, _ = syncLogChange(b.app.DB, s.Team.ID, cal, p, "", true)
 	}
@@ -938,7 +1068,7 @@ func (h *Handler) RegisterDAV(r *gin.RouterGroup, files http.Handler) {
 	dh := &caldav.Handler{Backend: calBackend, Prefix: "/dav"}
 	auth := h.davAuth()
 	mux := &davMux{caldav: &syncDAVHandler{inner: dh, b: calBackend}, files: files}
-	davMethods := []string{"GET", "HEAD", "PUT", "DELETE", "OPTIONS", "POST", "PROPFIND", "PROPPATCH", "REPORT", "COPY", "MOVE", "MKCOL", "LOCK", "UNLOCK"}
+	davMethods := []string{"GET", "HEAD", "PUT", "DELETE", "OPTIONS", "POST", "PROPFIND", "PROPPATCH", "REPORT", "COPY", "MOVE", "MKCOL", "MKCALENDAR", "LOCK", "UNLOCK"}
 	r.Match(davMethods, "/.well-known/caldav", auth, gin.WrapH(dh))
 	r.Match(davMethods, "/dav", auth, gin.WrapH(mux))
 	r.Match(davMethods, "/dav/*dav", auth, gin.WrapH(mux))
