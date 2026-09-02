@@ -24,13 +24,6 @@ from harness import stop_server, start_server, clean_env, register_user, TEST_HO
 KNOWN_DEVIATIONS = {
     "save-load.journal": "VJOURNAL rejected by design (409 precondition)",
     "search.comp-type.optional": "comp-type omitted search yields unexpected result set; the tester itself marks this inconclusive (TODO in its source)",
-    "scheduling": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
-    "scheduling.mailbox": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
-    "scheduling.mailbox.inbox-delivery": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
-    "scheduling.calendar-user-address-set": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
-    "scheduling.schedule-tag": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
-    "scheduling.auto-schedule": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
-    "scheduling.freebusy-query": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
 }
 
 
