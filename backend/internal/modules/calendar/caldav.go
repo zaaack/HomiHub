@@ -726,11 +726,13 @@ func (h *Handler) davAuth() gin.HandlerFunc {
 		if !ok {
 			c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
 			httpx.UnauthorizedT(c, "calendar_auth_required")
+			c.Abort()
 			return
 		}
 		pass, err := url.QueryUnescape(pass)
 		if err != nil {
 			httpx.UnauthorizedT(c, "calendar_auth_required")
+			c.Abort()
 			return
 		}
 		var fam models.Team
@@ -741,11 +743,13 @@ func (h *Handler) davAuth() gin.HandlerFunc {
 				bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(pass)) != nil {
 				c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
 				httpx.UnauthorizedT(c, "calendar_auth_required")
+				c.Abort()
 				return
 			}
 			if err := h.app.DB.Where("id = ?", u.TeamID).First(&fam).Error; err != nil {
 				c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
 				httpx.UnauthorizedT(c, "calendar_auth_required")
+				c.Abort()
 				return
 			}
 		}
@@ -753,12 +757,14 @@ func (h *Handler) davAuth() gin.HandlerFunc {
 		if err := h.app.DB.Where("email = ?", email).First(&user).Error; err != nil {
 			c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
 			httpx.UnauthorizedT(c, "calendar_auth_required")
+			c.Abort()
 			return
 		}
 		var uf models.TeamMember
 		if err := h.app.DB.Where("user_id = ? AND team_id = ?", user.ID, fam.ID).First(&uf).Error; err != nil {
 			c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
 			httpx.UnauthorizedT(c, "calendar_auth_required")
+			c.Abort()
 			return
 		}
 		user.Role = uf.Role

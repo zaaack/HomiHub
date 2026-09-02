@@ -53,3 +53,5 @@ require (
 	modernc.org/memory v1.5.0 // indirect
 	modernc.org/sqlite v1.23.1 // indirect
 )
+
+replace github.com/emersion/go-webdav v0.7.0 => ../vendor/go-webdav

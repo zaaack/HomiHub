@@ -16,18 +16,17 @@ from harness import stop_server, start_server, clean_env, register_user, TEST_HO
 # (feature, reason). Features not listed here will fail the run.
 # These are all library/protocol limits or deliberate design decisions:
 #  - go-webdav does not implement free-busy/principal-search/scheduling
-#  - CASE-insensitive text-match and is-not-defined are optional-ish per RFC4791
+#  - is-not-defined optional-ish per RFC4791
 #  - recurrences.expanded or alarm time-range matching not needed by our clients
 #  - MKCALENDAR is only RECOMMENDED (create-calendar.auto observed full = we aut-create)
 #  - sync-token is implemented via a custom wrapper (sync.go); removed from allowlist
+#  - case-insensitive text-match (i;ascii-casemap) implemented via a local go-webdav fork (vendor/go-webdav)
 KNOWN_DEVIATIONS = {
     "create-calendar": "MKCALENDAR is only RECOMMENDED by RFC4791; we expose a pre-created per-user calendar",
     # observed 'full' while spec default is 'unsupported': harmless, we do auto-create
     "create-calendar.auto": "creating a calendar on demand is supported (bonus)",
     "save-load.journal": "VJOURNAL rejected by design (409 precondition)",
-    "save-load.event.recurrences.exception": "master+exception kept as ONE .ics blob; architecture keeps them separate",
     "search.time-range.alarm": "VALARM time-range search not implemented (clients expand alarms locally)",
-    "search.text.case-insensitive": "i;ascii-casemap not implemented (protocol allows case-sensitive search)",
     "search.is-not-defined": "is-not-defined prop-filter not implemented",
     "search.is-not-defined.category": "is-not-defined prop-filter not implemented",
     "search.is-not-defined.class": "is-not-defined prop-filter not implemented",

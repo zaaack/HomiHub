@@ -9,8 +9,8 @@ import (
 
 // filterCalendarObjects mirrors caldav.Filter but strips time-range first
 // (the DB layer already handles it, and caldav.Filter's matchCompTimeRange
-// drops VTODO). Text-match uses i;octet (case-sensitive) — see docs/CALDAV.md
-// TODO #3 for case-insensitive (i;ascii-casemap).
+// drops VTODO). Text-match honors the collation attribute (i;octet vs
+// i;ascii-casemap) — see matchCITextMatch.
 func filterCalendarObjects(query *caldav.CalendarQuery, objs []caldav.CalendarObject) ([]caldav.CalendarObject, error) {
 	if query == nil {
 		return objs, nil
@@ -103,12 +103,16 @@ func matchCIParamFilter(filter caldav.ParamFilter, field *ical.Prop) bool {
 	return true
 }
 
-// matchCITextMatch applies i;octet collation (case-sensitive substring
-// matching), which RFC 4791 §7.5 requires servers to support. The library
-// drops the collation attribute while decoding, so i;ascii-casemap
-// (case-insensitive) is not honored yet (see docs/CALDAV.md TODO #3).
+// matchCITextMatch honors the collation attribute (RFC 4791 §9.7.5):
+// "i;octet" (default) is case-sensitive, "i;ascii-casemap" is
+// case-insensitive. The fork of go-webdav preserves Collation while decoding.
 func matchCITextMatch(txt caldav.TextMatch, value string) bool {
-	match := strings.Contains(value, txt.Text)
+	query := txt.Text
+	if txt.Collation == "i;ascii-casemap" {
+		query = strings.ToLower(query)
+		value = strings.ToLower(value)
+	}
+	match := strings.Contains(value, query)
 	if txt.NegateCondition {
 		match = !match
 	}

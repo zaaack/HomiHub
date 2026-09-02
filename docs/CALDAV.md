@@ -12,20 +12,22 @@
 
 ### 2. save-load.event.recurrences.exception（Master + Exception 单 .ics）
 
-- **状态**：⏳ 待实现
+- **状态**：✅ 已实现（`backend/internal/modules/calendar/caldav.go`）
 - **标准**：RFC 4791 §4.1 — 相同 UID 的主重复事件（Master）与例外（Exception，如"把本周三的例会改到周四"）必须存放在同一个 .ics 资源中。
 - **影响**：Apple Calendar / Thunderbird 编辑"仅修改此循环事件的单次实例"时会提交含 `RECURRENCE-ID` 的 .ics。若拆成独立 blob 存储，客户端更新/删除主事件或重新拉取时，修改过的单次实例会丢失、重复或时间对不上。
-- **验收**：caldav-server-tester `save-load.event.recurrences.exception` 通过。
+- **实现**：`PutCalendarObject` 解析 multi-VEVENT payload，master 与各 exception 按 UID+RID 分库存储，随主链一致性协调（不在 payload 的旧 exception 删除）；读路径 `bundleEvents`/`toObject` 按 UID 归组，返回单个含全部 VEVENT 的资源。
+- **验证**：caldav-server-tester `save-load.event.recurrences.exception` 通过（已从 allowlist 移除）。
 
 ## 中高优先级
 
 ### 3. search.text.case-insensitive（大小写不敏感搜索）
 
-- **状态**：⏳ 待实现
+- **状态**：✅ 已实现（`backend/internal/modules/calendar/filter.go` + `vendor/go-webdav` 本地 fork）
 - **标准**：RFC 4791 `i;ascii-casemap`（协议允许大小写敏感，但主流客户端默认不敏感）。
 - **影响**：Apple Calendar、Outlook、Nextcloud 搜索框默认大小写不敏感。不实现则搜索 "Meeting" 搜不到标题为 "meeting" 的日程，体验像系统 Bug。
-- **实现思路**：文本匹配过滤时做小写转换，改动成本低。
-- **验收**：caldav-server-tester `search.text.case-insensitive` 通过。
+- **实现**：上游 go-webdav 在解码 REPORT 时丢弃了 `text-match` 的 `collation` 属性。项目在 `vendor/go-webdav`（本地 fork，已被 gitignore）给 `caldav.TextMatch` 增加 `Collation` 字段并在 `decodePropFilter`/`decodeParamFilter` 保留；`matchCITextMatch` 据此在 `i;octet`（大小写敏感，默认）与 `i;ascii-casemap`（大小写不敏感）间切换。
+- **验证**：caldav-server-tester `search.text.case-insensitive` 通过（已从 allowlist 移除）。
+- **注意**：若需同步上游，从 `<go module cache>/github.com/emersion/go-webdav@v0.7.0` 对照复制三个文件即可复现 fork 补丁。
 
 ## 中低优先级（可选，后续考虑）
 
