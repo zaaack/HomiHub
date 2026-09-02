@@ -80,7 +80,12 @@ func (p *CORSProvider) Handler() gin.HandlerFunc {
 				"Content-Range, Accept-Ranges, Content-Length, ETag, Last-Modified")
 			c.Header("Access-Control-Max-Age", "86400")
 		}
-		if c.Request.Method == http.MethodOptions {
+		// Only short-circuit real CORS preflights (Origin +
+		// Access-Control-Request-Method). Plain WebDAV OPTIONS requests
+		// (litmus, curl) carry neither and must reach the handler so it can
+		// reply with DAV/Allow headers.
+		if c.Request.Method == http.MethodOptions &&
+			origin != "" && c.GetHeader("Access-Control-Request-Method") != "" {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}

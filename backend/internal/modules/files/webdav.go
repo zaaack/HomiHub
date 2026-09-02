@@ -361,19 +361,31 @@ func (w *filesWebDAV) RemoveAll(ctx context.Context, name string, opts *webdav.R
 		return err
 	}
 	leaf := segs[len(segs)-1]
+	s, err := w.session(ctx)
+	if err != nil {
+		return err
+	}
 	now := time.Now()
-	db, err = w.db(ctx)
-	if err != nil {
-		return err
+	var fileRes, folderRes *gorm.DB
+	qf := db.Model(&models.File{}).Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
+	if scope == models.ScopePersonal {
+		qf = qf.Where("owner_id = ?", s.User.ID)
 	}
-	db.Model(&models.File{}).Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf).
-		Update("deleted_at", &now)
-	db, err = w.db(ctx)
-	if err != nil {
-		return err
+	fileRes = qf.Update("deleted_at", &now)
+	qd := db.Model(&models.FileFolder{}).Where("scope = ? AND parent_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
+	if scope == models.ScopePersonal {
+		qd = qd.Where("owner_id = ?", s.User.ID)
 	}
-	db.Model(&models.FileFolder{}).Where("scope = ? AND parent_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf).
-		Update("deleted_at", &now)
+	folderRes = qd.Update("deleted_at", &now)
+	if fileRes.Error != nil {
+		return fileRes.Error
+	}
+	if folderRes.Error != nil {
+		return folderRes.Error
+	}
+	if fileRes.RowsAffected == 0 && folderRes.RowsAffected == 0 {
+		return webdav.NewHTTPError(http.StatusNotFound, fmt.Errorf("resource not found"))
+	}
 	return nil
 }
 
@@ -397,6 +409,29 @@ func (w *filesWebDAV) Mkdir(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	leaf := segs[len(segs)-1]
+	// RFC2518:8.3.1 — MKCOL on an existing resource/collection must fail.
+	var n int64
+	qc := db.Model(&models.FileFolder{}).Where("scope = ? AND parent_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
+	if scope == models.ScopePersonal {
+		qc = qc.Where("owner_id = ?", s.User.ID)
+	}
+	if err := qc.Count(&n).Error; err != nil {
+		return err
+	}
+	if n > 0 {
+		return webdav.NewHTTPError(http.StatusMethodNotAllowed, fmt.Errorf("collection already exists"))
+	}
+	qf := db.Model(&models.File{}).Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
+	if scope == models.ScopePersonal {
+		qf = qf.Where("owner_id = ?", s.User.ID)
+	}
+	if err := qf.Count(&n).Error; err != nil {
+		return err
+	}
+	if n > 0 {
+		return webdav.NewHTTPError(http.StatusMethodNotAllowed, fmt.Errorf("resource already exists"))
+	}
 	folder := models.FileFolder{
 		ID:       uuid.Must(uuid.NewV7()).String(),
 		TeamID: s.Team.ID,
@@ -409,6 +444,12 @@ func (w *filesWebDAV) Mkdir(ctx context.Context, name string) error {
 }
 
 func (w *filesWebDAV) Copy(ctx context.Context, src, dst string, options *webdav.CopyOptions) (bool, error) {
+	// RFC2518:S8.8.4 — with Overwrite:F, an existing destination must fail.
+	if options != nil && options.NoOverwrite {
+		if _, err := w.Stat(ctx, dst); err == nil {
+			return false, webdav.NewHTTPError(http.StatusPreconditionFailed, fmt.Errorf("destination exists"))
+		}
+	}
 	rc, err := w.Open(ctx, src)
 	if err != nil {
 		return false, err
@@ -423,6 +464,11 @@ func (w *filesWebDAV) Copy(ctx context.Context, src, dst string, options *webdav
 }
 
 func (w *filesWebDAV) Move(ctx context.Context, src, dst string, options *webdav.MoveOptions) (bool, error) {
+	if options != nil && options.NoOverwrite {
+		if _, err := w.Stat(ctx, dst); err == nil {
+			return false, webdav.NewHTTPError(http.StatusPreconditionFailed, fmt.Errorf("destination exists"))
+		}
+	}
 	created, err := w.Copy(ctx, src, dst, nil)
 	if err != nil {
 		return false, err

@@ -420,6 +420,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 		ev.RRule = pe.RRule
 		ev.ExDate = exDatesJoin(pe.ExDates)
 		ev.RecurrenceID = pe.RecurrenceID
+		ev.RelatedTo = pe.RelatedTo
 		ev.Visibility = vis
 		ev.Reminders = remindersJSON(pe.Reminders)
 		ev.UpdatedAt = time.Now()
@@ -442,6 +443,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 			RRule:        pe.RRule,
 			ExDate:       exDatesJoin(pe.ExDates),
 			RecurrenceID: pe.RecurrenceID,
+			RelatedTo:    pe.RelatedTo,
 			Visibility:   vis,
 			Reminders:    remindersJSON(pe.Reminders),
 		}
@@ -611,7 +613,7 @@ func (h *Handler) RegisterDAV(r *gin.RouterGroup, files http.Handler) {
 	dh := &caldav.Handler{Backend: calBackend, Prefix: "/dav"}
 	auth := h.davAuth()
 	mux := &davMux{caldav: dh, files: files}
-	davMethods := []string{"GET", "HEAD", "PUT", "DELETE", "OPTIONS", "POST", "PROPFIND", "REPORT", "COPY", "MOVE", "MKCOL", "LOCK", "UNLOCK"}
+	davMethods := []string{"GET", "HEAD", "PUT", "DELETE", "OPTIONS", "POST", "PROPFIND", "PROPPATCH", "REPORT", "COPY", "MOVE", "MKCOL", "LOCK", "UNLOCK"}
 	r.Match(davMethods, "/.well-known/caldav", auth, gin.WrapH(dh))
 	r.Match(davMethods, "/dav", auth, gin.WrapH(mux))
 	r.Match(davMethods, "/dav/*dav", auth, gin.WrapH(mux))

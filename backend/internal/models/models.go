@@ -86,8 +86,9 @@ type CalendarEvent struct {
 	AllDay      bool       `json:"allDay"`
 	RRule       string     `gorm:"size:255" json:"rrule"`
 	ExDate      string     `gorm:"type:text" json:"-"`
-	RecurrenceID *time.Time `json:"recurrenceId"`
-	Visibility  int        `gorm:"default:3" json:"visibility"`
+RecurrenceID *time.Time `json:"recurrenceId"`
+	RelatedTo    string     `gorm:"size:255" json:"relatedTo"`
+	Visibility   int        `gorm:"default:3" json:"visibility"`
 	Attendees   string     `gorm:"type:text" json:"-"`
 	Reminders   string     `gorm:"type:text" json:"-"`
 	CreatedAt   time.Time  `json:"createdAt"`

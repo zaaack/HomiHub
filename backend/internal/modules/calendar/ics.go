@@ -24,6 +24,7 @@ type parsedEvent struct {
 	RRule        string
 	ExDates      []time.Time
 	RecurrenceID *time.Time
+	RelatedTo    string
 	Reminders    []models.Reminder
 }
 
@@ -107,6 +108,14 @@ func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
 			rid := ical.NewProp(ical.PropRecurrenceID)
 			rid.SetDateTime(*ev.RecurrenceID)
 			comp.Props.Set(rid)
+		}
+		for _, rel := range strings.Split(ev.RelatedTo, ",") {
+			if rel == "" {
+				continue
+			}
+			p := ical.NewProp(ical.PropRelatedTo)
+			p.Value = strings.TrimSpace(rel)
+			comp.Props.Add(p)
 		}
 		if rem := parseRemindersJSON(ev.Reminders); len(rem) > 0 {
 			addAlarms(comp.Component, ev.StartsAt, rem)
@@ -439,6 +448,12 @@ func ParseEvents(cal *ical.Calendar) []parsedEvent {
 			}
 			rid := t.UTC()
 			pe.RecurrenceID = &rid
+		}
+		for _, rel := range ev.Props[ical.PropRelatedTo] {
+			if pe.RelatedTo != "" {
+				pe.RelatedTo += ","
+			}
+			pe.RelatedTo += rel.Value
 		}
 		for _, ex := range ev.Props[ical.PropExceptionDates] {
 			if t, err := ex.DateTime(nil); err == nil {
