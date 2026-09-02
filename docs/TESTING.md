@@ -31,6 +31,9 @@ WebDAV 后端基于 `golang.org/x/net/webdav`（官方参考实现）。对照 `
 
 PASS（具体用例见 `tests/test_caldav.py`）。
 
+- `sync-token`（RFC 6578）已实现并通过：PROPFIND 返回 200 sync-token；REPORT sync-collection 返回增量（见 `backend/internal/modules/calendar/sync.go`）。
+- `search.text.case-insensitive`（i;ascii-casemap）为已知偏差，见 `docs/CALDAV.md` TODO #3。
+
 ### REST API
 
 PASS（冒烟测试见 `tests/test_rest_api.py`）。

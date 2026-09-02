@@ -110,6 +110,18 @@ type Reminder struct {
 	At    *time.Time `json:"at,omitempty"`
 }
 
+// CalendarSyncLog tracks calendar mutations for RFC 6578 sync-collection.
+type CalendarSyncLog struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement"`
+	TeamID    string    `gorm:"size:36;index:idx_cal_sync,priority:1"`
+	Calendar  string    `gorm:"size:16;index:idx_cal_sync,priority:2"` // "self" or "team"
+	Seq       int64
+	Href      string    `gorm:"size:512"`
+	Etag      string    `gorm:"size:64"`
+	Deleted   bool
+	CreatedAt time.Time
+}
+
 // Seconds returns the duration this relative reminder represents (0 for "at").
 func (r Reminder) Seconds() int {
 	switch r.Unit {

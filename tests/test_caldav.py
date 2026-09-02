@@ -15,10 +15,11 @@ from harness import stop_server, start_server, clean_env, register_user, TEST_HO
 # Known deviations (observed support level != standard default). Each entry is
 # (feature, reason). Features not listed here will fail the run.
 # These are all library/protocol limits or deliberate design decisions:
-#  - go-webdav does not implement free-busy/sync-token/principal-search/scheduling
+#  - go-webdav does not implement free-busy/principal-search/scheduling
 #  - CASE-insensitive text-match and is-not-defined are optional-ish per RFC4791
 #  - recurrences.expanded or alarm time-range matching not needed by our clients
 #  - MKCALENDAR is only RECOMMENDED (create-calendar.auto observed full = we aut-create)
+#  - sync-token is implemented via a custom wrapper (sync.go); removed from allowlist
 KNOWN_DEVIATIONS = {
     "create-calendar": "MKCALENDAR is only RECOMMENDED by RFC4791; we expose a pre-created per-user calendar",
     # observed 'full' while spec default is 'unsupported': harmless, we do auto-create
@@ -48,7 +49,6 @@ KNOWN_DEVIATIONS = {
     "scheduling.schedule-tag": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
     "scheduling.auto-schedule": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
     "scheduling.freebusy-query": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
-    "sync-token": "go-webdav library does not implement sync-collection REPORT",
 }
 
 

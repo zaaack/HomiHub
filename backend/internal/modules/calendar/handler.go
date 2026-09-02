@@ -314,20 +314,20 @@ func (h *Handler) create(c *gin.Context) {
 	}
 	cl := middleware.ClaimsOf(c)
 	ev := models.CalendarEvent{
-		ID:         uuid.Must(uuid.NewV7()).String(),
-		TeamID:   cl.TeamID,
-		UserID:     cl.UserID,
-		UID:        uuid.Must(uuid.NewV7()).String(),
-		Title:      in.Title,
-		Category:   in.Category,
-		Location:   in.Location,
+		ID:          uuid.Must(uuid.NewV7()).String(),
+		TeamID:      cl.TeamID,
+		UserID:      cl.UserID,
+		UID:         uuid.Must(uuid.NewV7()).String(),
+		Title:       in.Title,
+		Category:    in.Category,
+		Location:    in.Location,
 		Description: in.Description,
-		StartsAt:   startsAt.UTC(),
-		EndsAt:     endsAt.UTC(),
-		AllDay:     in.AllDay,
-		RRule:      in.RRule,
-		ExDate:     exDatesJoinValEx(in.ExDates),
-		Visibility: in.Visibility,
+		StartsAt:    startsAt.UTC(),
+		EndsAt:      endsAt.UTC(),
+		AllDay:      in.AllDay,
+		RRule:       in.RRule,
+		ExDate:      exDatesJoinValEx(in.ExDates),
+		Visibility:  in.Visibility,
 	}
 	if len(in.Reminders) > 0 {
 		if b, err := json.Marshal(in.Reminders); err == nil {
@@ -338,7 +338,28 @@ func (h *Handler) create(c *gin.Context) {
 		httpx.ErrT(c, http.StatusInternalServerError, "create_failed")
 		return
 	}
+	h.recordEventSync(&ev, false)
 	httpx.Created(c, occurrenceView(&ev, ev.StartsAt, ev.EndsAt))
+}
+
+// recordEventSync bumps the CalDAV sync log for an event created/updated via
+// the REST API so external clients see it through sync-collection. Private
+// events live in the self calendar, team/busy events in the team calendar.
+func (h *Handler) recordEventSync(ev *models.CalendarEvent, deleted bool) {
+	cal := calTeam
+	if ev.Visibility == models.VisibilityPrivate {
+		cal = calSelf
+	}
+	// Determine the calendar via the event's ownership and visibility.
+	user := models.User{}
+	if h.app.DB.Where("id = ?", ev.UserID).First(&user).Error == nil {
+		href := calendarPath(user.Email, cal) + ev.UID + ".ics"
+		etag := ""
+		if !deleted {
+			etag = eventEtag(ev)
+		}
+		_, _ = syncLogChange(h.app.DB, ev.TeamID, cal, href, etag, deleted)
+	}
 }
 
 func (h *Handler) update(c *gin.Context) {
@@ -380,6 +401,7 @@ func (h *Handler) update(c *gin.Context) {
 	}
 	var ev models.CalendarEvent
 	middleware.DB(c).First(&ev, "id = ?", id)
+	h.recordEventSync(&ev, false)
 	httpx.OK(c, occurrenceView(&ev, ev.StartsAt, ev.EndsAt))
 }
 
@@ -399,5 +421,6 @@ func (h *Handler) delete(c *gin.Context) {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")
 		return
 	}
+	h.recordEventSync(&ev, true)
 	httpx.OK(c, gin.H{"ok": true})
 }
