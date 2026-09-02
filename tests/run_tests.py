@@ -9,6 +9,7 @@ caldav-server-tester must be installed (uv tool install caldav-server-tester).
 litmus must be installed (apt install litmus).
 """
 import importlib
+import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))

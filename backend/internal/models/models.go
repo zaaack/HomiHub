@@ -212,6 +212,7 @@ type File struct {
 	MimeType       string     `gorm:"size:128" json:"mimeType"`
 	Size           int64      `json:"size"`
 	FolderID       string     `gorm:"size:36;default:'';index" json:"folderId"`
+	DeadProps      string     `gorm:"type:text" json:"-"` // WebDAV dead properties (JSON)
 	DeletedAt      *time.Time `json:"deletedAt"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	UpdatedAt      time.Time  `json:"updatedAt"`
@@ -224,6 +225,7 @@ type FileFolder struct {
 	OwnerID   string     `gorm:"size:36;index" json:"ownerId"`
 	ParentID  string     `gorm:"size:36;default:'';index" json:"parentId"`
 	Name      string     `gorm:"size:255;not null" json:"name"`
+	DeadProps string     `gorm:"type:text" json:"-"` // WebDAV dead properties (JSON)
 	DeletedAt *time.Time `json:"deletedAt"`
 	CreatedAt time.Time  `json:"createdAt"`
 	UpdatedAt time.Time  `json:"updatedAt"`
