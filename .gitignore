@@ -1,3 +1,5 @@
 backend/static/*
 !backend/static/.placeholder
 /homihub
+debug.log
+tests/__pycache__/
