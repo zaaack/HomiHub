@@ -303,10 +303,51 @@ func (b *davBackend) expandObject(ctx context.Context, master *models.CalendarEv
 	}, nil
 }
 
+// expandTodoObject expands a recurring VTODO into its occurrences within
+// [exp.Start, exp.End], rendering each as a VTODO with DTSTART/DUE set to the
+// occurrence and a RECURRENCE-ID (RFC 4791 §9.6.5).
+func (b *davBackend) expandTodoObject(ctx context.Context, t *models.Todo, cal string, exp *caldav.CalendarExpandRequest) (*caldav.CalendarObject, error) {
+	s := b.session(ctx)
+	rr, err := parseRuleWithStart(t.RRule, *t.StartAt)
+	if err != nil {
+		return b.toTodoObject(ctx, t, cal)
+	}
+
+	var dur time.Duration
+	if t.DueAt != nil {
+		dur = t.DueAt.Sub(*t.StartAt)
+	}
+
+	calOut := newCalendar(s.Team.Name)
+	for _, occ := range rr.Between(exp.Start, exp.End, true) {
+		inst := *t
+		inst.StartAt = &occ
+		if dur > 0 {
+			due := occ.Add(dur)
+			inst.DueAt = &due
+		}
+		inst.RRule = ""
+		comp := todoComponent(&inst)
+		rid := ical.NewProp(ical.PropRecurrenceID)
+		rid.SetDateTime(occ)
+		comp.Props.Set(rid)
+		calOut.Children = append(calOut.Children, comp)
+	}
+	if len(calOut.Children) == 0 {
+		return b.toTodoObject(ctx, t, cal)
+	}
+	return &caldav.CalendarObject{
+		Path:          calendarPath(s.Email, cal) + todoUID(t) + ".ics",
+		ModTime:       t.UpdatedAt,
+		ContentLength: int64(len(serialize(calOut))),
+		ETag:          todoEtag(t),
+		Data:          calOut,
+	}, nil
+}
+
 // bundleEvents groups events by UID and returns one CalendarObject per UID
 // (master + exceptions merged into a single .ics resource).
-func (b *davBackend) bundleEvents(ctx context.Context, evs []models.CalendarEvent, cal string) (map[string]*caldav.CalendarObject, error) {
-	byUID := map[string][]models.CalendarEvent{}
+func (b *davBackend) bundleEvents(ctx context.Context, evs []models.CalendarEvent, cal string) (map[string]*caldav.CalendarObject, error) {	byUID := map[string][]models.CalendarEvent{}
 	for i := range evs {
 		ev := evs[i]
 		byUID[ev.UID] = append(byUID[ev.UID], ev)
@@ -489,11 +530,20 @@ func (b *davBackend) QueryCalendarObjects(ctx context.Context, p string, query *
 		if !todoInRange(t, start, end) {
 			continue
 		}
-		obj, err := b.toTodoObject(ctx, t, cal)
-		if err != nil {
-			return nil, err
+		doExpand := query != nil && query.CompRequest.Expand != nil
+		if doExpand && t.RRule != "" && t.StartAt != nil {
+			obj, err := b.expandTodoObject(ctx, t, cal, query.CompRequest.Expand)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, *obj)
+		} else {
+			obj, err := b.toTodoObject(ctx, t, cal)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, *obj)
 		}
-		out = append(out, *obj)
 	}
 	if query == nil {
 		return out, nil

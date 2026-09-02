@@ -23,7 +23,6 @@ from harness import stop_server, start_server, clean_env, register_user, TEST_HO
 #  - case-insensitive text-match (i;ascii-casemap) implemented via a local go-webdav fork (vendor/go-webdav)
 KNOWN_DEVIATIONS = {
     "save-load.journal": "VJOURNAL rejected by design (409 precondition)",
-    "search.recurrences.expanded.todo": "expand attribute on VTODO not implemented (VEVENT done)",
     "search.comp-type.optional": "comp-type omitted search yields unexpected result set; the tester itself marks this inconclusive (TODO in its source)",
     "scheduling": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
     "scheduling.mailbox": "CalDAV scheduling (RFC6638) not implemented by go-webdav library",
