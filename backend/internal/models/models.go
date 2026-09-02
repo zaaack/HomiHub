@@ -86,11 +86,12 @@ type Calendar struct {
 }
 
 type CalendarEvent struct {
-	ID          string     `gorm:"primaryKey;size:36" json:"id"`
-	TeamID      string     `gorm:"size:36;index" json:"teamId"`
-	UserID      string     `gorm:"size:36;index" json:"userId"`
-	UID         string     `gorm:"size:64;index" json:"uid"`
-	Calendar    string     `gorm:"size:64;default:team;index" json:"calendar"` // calendar name (self, team, or custom)
+	ID            string     `gorm:"primaryKey;size:36" json:"id"`
+	TeamID        string     `gorm:"size:36;index" json:"teamId"`
+	UserID        string     `gorm:"size:36;index" json:"userId"`
+	UID           string     `gorm:"size:64;index" json:"uid"`
+	Calendar      string     `gorm:"size:64;default:team;index" json:"calendar"` // calendar name (self, team, or custom)
+	ComponentType string     `gorm:"size:16;default:VEVENT" json:"componentType"` // VEVENT or VJOURNAL
 	Title       string     `gorm:"size:255;not null" json:"title"`
 	Category    string     `gorm:"size:16;not null" json:"category"`
 	Location    string     `gorm:"size:255" json:"location"`

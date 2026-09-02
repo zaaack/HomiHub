@@ -81,6 +81,10 @@ func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
 	cal := newCalendar(name)
 	for i := range evs {
 		ev := &evs[i]
+		if ev.ComponentType == ical.CompJournal {
+			cal.Children = append(cal.Children, journalComponent(ev))
+			continue
+		}
 		comp := ical.NewEvent()
 		comp.Props.SetText(ical.PropUID, ev.UID)
 		comp.Props.SetText(ical.PropSummary, ev.Title)
@@ -141,6 +145,45 @@ func BuildTodoCalendar(name string, t *models.Todo) *ical.Calendar {
 	cal := newCalendar(name)
 	cal.Children = append(cal.Children, todoComponent(t))
 	return cal
+}
+
+// journalComponent renders one stored journal as a VJOURNAL component.
+func journalComponent(ev *models.CalendarEvent) *ical.Component {
+	comp := ical.NewComponent(ical.CompJournal)
+	comp.Props.SetText(ical.PropUID, ev.UID)
+	comp.Props.SetText(ical.PropSummary, ev.Title)
+	comp.Props.SetDateTime(ical.PropDateTimeStamp, ev.UpdatedAt.UTC())
+	if !ev.StartsAt.IsZero() {
+		comp.Props.SetDateTime(ical.PropDateTimeStart, ev.StartsAt)
+	}
+	if ev.Description != "" {
+		comp.Props.SetText(ical.PropDescription, ev.Description)
+	}
+	return comp
+}
+
+// ParseJournals extracts VJOURNAL components from a calendar payload.
+func ParseJournals(cal *ical.Calendar) []parsedEvent {
+	out := []parsedEvent{}
+	for _, child := range cal.Children {
+		if child.Name != ical.CompJournal {
+			continue
+		}
+		pe := parsedEvent{}
+		pe.UID, _ = child.Props.Text(ical.PropUID)
+		if pe.UID == "" {
+			continue
+		}
+		pe.Title, _ = child.Props.Text(ical.PropSummary)
+		pe.Description, _ = child.Props.Text(ical.PropDescription)
+		if sp := child.Props.Get(ical.PropDateTimeStart); sp != nil {
+			if t, err := sp.DateTime(nil); err == nil {
+				pe.StartsAt = t.UTC()
+			}
+		}
+		out = append(out, pe)
+	}
+	return out
 }
 
 func newCalendar(name string) *ical.Calendar {

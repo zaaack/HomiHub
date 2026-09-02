@@ -8,9 +8,13 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(__file__))
 from harness import stop_server, start_server, clean_env, register_user, TEST_HOST, TEST_EMAIL, caltoken, log
+
+SECOND_EMAIL = "child@test.local"
+SECOND_PASS = "pass1234"
 
 # Known deviations (observed support level != standard default). Each entry is
 # (feature, reason). Features not listed here will fail the run.
@@ -21,10 +25,7 @@ from harness import stop_server, start_server, clean_env, register_user, TEST_HO
 #  - MKCALENDAR is only RECOMMENDED (create-calendar.auto observed full = we aut-create)
 #  - sync-token is implemented via a custom wrapper (sync.go); removed from allowlist
 #  - case-insensitive text-match (i;ascii-casemap) implemented via a local go-webdav fork (vendor/go-webdav)
-KNOWN_DEVIATIONS = {
-    "save-load.journal": "VJOURNAL rejected by design (409 precondition)",
-    "search.comp-type.optional": "comp-type omitted search yields unexpected result set; the tester itself marks this inconclusive (TODO in its source)",
-}
+KNOWN_DEVIATIONS = {}
 
 
 def _runner():
@@ -53,12 +54,28 @@ def main():
     start_server()
     try:
         register_user()
+        register_user(email=SECOND_EMAIL, password=SECOND_PASS, name="Test Child")
+        token = caltoken()
         log(f"running caldav-server-tester against {TEST_HOST}/dav ...")
+
+        # Create a temp config file so the tester can find extra clients for
+        # multi-user scheduling checks (RFC 6638 freebusy, inbox, auto-schedule).
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False, prefix="caldav-tester-") as cf:
+            cf.write(f"primary:\n  caldav_url: {TEST_HOST}/dav\n  caldav_username: {TEST_EMAIL}\n  caldav_password: {token}\n")
+            cf.write(f"secondary:\n  caldav_url: {TEST_HOST}/dav\n  caldav_username: {SECOND_EMAIL}\n  caldav_password: {SECOND_PASS}\n")
+            conf_path = cf.name
+
+        env = clean_env()
+        env["CALDAV_CONFIG_FILE"] = conf_path
+
         proc = subprocess.run(
-            cmd + ["--caldav-url", f"{TEST_HOST}/dav", "--caldav-username", TEST_EMAIL,
-                   "--caldav-password", caltoken(), "--caldav-calendar", "我的", "--format", "json"],
-            capture_output=True, text=True, env=clean_env(),
+            cmd + ["--name", "primary", "--config-section", "primary",
+                   "--config-section", "secondary", "--caldav-calendar", "我的",
+                   "--format", "json"],
+            capture_output=True, text=True, env=env,
         )
+        os.unlink(conf_path)
+
         try:
             report = json.loads(proc.stdout)
         except json.JSONDecodeError:

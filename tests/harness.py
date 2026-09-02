@@ -85,17 +85,22 @@ def stop_server():
     _server = None
 
 
-def register_user():
-    """Register the test user (idempotent) and cache token + calendar token."""
+def register_user(email=None, password=None, name=None):
+    """Register a test user (idempotent) and cache token + calendar token."""
+    email = email or TEST_EMAIL
+    password = password or TEST_PASSWORD
+    name = name or "Test Parent"
     global _token, _caltoken
-    log(f"registering user {TEST_EMAIL}...")
+    log(f"registering user {email}...")
     reg = request("POST", "/api/v1/auth/register",
-                  body={"name": "Test Parent", "email": TEST_EMAIL,
-                        "password": TEST_PASSWORD, "teamName": TEST_TEAM})
-    _token = reg["data"]["token"]
-    team = request("GET", "/api/v1/team")
-    _caltoken = team["data"]["calendarToken"]
-    log(f"token={_token[:8]}... caltoken={_caltoken}")
+                  body={"name": name, "email": email,
+                        "password": password, "teamName": TEST_TEAM})
+    if email == TEST_EMAIL:
+        _token = reg["data"]["token"]
+        team = request("GET", "/api/v1/team")
+        _caltoken = team["data"]["calendarToken"]
+        log(f"token={_token[:8]}... caltoken={_caltoken}")
+    return reg["data"]["token"]
 
 
 def request(method, path, body=None, token=None, raw=False):

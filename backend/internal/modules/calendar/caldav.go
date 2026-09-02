@@ -102,13 +102,13 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 			Path:                  calendarPath(s.Email, calSelf),
 			Name:                  "我的",
 			Description:           "我的私人日历",
-			SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo},
+			SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal},
 		},
 		{
 			Path:                  calendarPath(s.Email, calTeam),
 			Name:                  s.Team.Name,
 			Description:           s.Team.Name + " 的共享日历",
-			SupportedComponentSet: []string{ical.CompEvent},
+			SupportedComponentSet: []string{ical.CompEvent, ical.CompJournal},
 		},
 	}
 	var dbCals []models.Calendar
@@ -120,7 +120,7 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 			Path:                  calendarPath(s.Email, c.Name),
 			Name:                  c.DisplayName,
 			Description:           c.Description,
-			SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo},
+			SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal},
 		})
 	}
 	return cals, nil
@@ -131,9 +131,9 @@ func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calenda
 	cal := calNameFromPath(p)
 	switch cal {
 	case calSelf:
-		return &caldav.Calendar{Path: p, Name: "我的", Description: "我的私人日历", SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo}}, nil
+		return &caldav.Calendar{Path: p, Name: "我的", Description: "我的私人日历", SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}}, nil
 	case calTeam:
-		return &caldav.Calendar{Path: p, Name: s.Team.Name, Description: s.Team.Name + " 的共享日历", SupportedComponentSet: []string{ical.CompEvent}}, nil
+		return &caldav.Calendar{Path: p, Name: s.Team.Name, Description: s.Team.Name + " 的共享日历", SupportedComponentSet: []string{ical.CompEvent, ical.CompJournal}}, nil
 	}
 	var c models.Calendar
 	if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Where("name = ?", cal).First(&c).Error; err != nil {
@@ -143,7 +143,7 @@ func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calenda
 		Path:                  p,
 		Name:                  c.DisplayName,
 		Description:           c.Description,
-		SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo},
+		SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal},
 	}, nil
 }
 
@@ -785,6 +785,11 @@ func rfcEndGe(end, x time.Time) bool {
 }
 
 func inRange(ev *models.CalendarEvent, start, end time.Time) bool {
+	if ev.ComponentType == ical.CompJournal {
+		// VJOURNAL has a DTSTART but no DTEND; it matches when its DTSTART
+		// falls within the range (RFC 4791 §9.9 row for VJOURNAL).
+		return !ev.StartsAt.Before(start) && !ev.StartsAt.After(end)
+	}
 	if ev.RecurrenceID != nil {
 		return !ev.StartsAt.Before(start) && !ev.StartsAt.After(end)
 	}
@@ -809,12 +814,15 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 	if pt, err := ParseTodo(cal); err == nil {
 		return b.putTodo(ctx, p, calName, pt)
 	}
+	if journals := ParseJournals(cal); len(journals) > 0 {
+		return b.putJournal(ctx, p, calName, journals)
+	}
 	parsed := ParseEvents(cal)
 	if len(parsed) == 0 {
-		// Check if calendar contains only unsupported components (VJOURNAL).
+		// Check if calendar contains only unsupported components (VFREEBUSY).
 		// Return 409 with PreconditionSupportedCalendarComponent instead of 500.
 		for _, c := range cal.Children {
-			if c.Name == ical.CompJournal || c.Name == ical.CompFreeBusy {
+			if c.Name == ical.CompFreeBusy {
 				return nil, caldav.NewPreconditionError(caldav.PreconditionSupportedCalendarComponent)
 			}
 		}
@@ -1010,6 +1018,60 @@ Completed:   pt.Completed,
 		}
 	}
 	return b.toTodoObject(ctx, &t, calName)
+}
+
+// putJournal stores a VJOURNAL written by an external CalDAV client as a
+// CalendarEvent row with ComponentType=VJOURNAL so it round-trips and shows up
+// in REPORT searches (RFC 4791 §5.1).
+func (b *davBackend) putJournal(ctx context.Context, p, calName string, journals []parsedEvent) (*caldav.CalendarObject, error) {
+	s := b.session(ctx)
+	vis := models.VisibilityTeam
+	if calName == calSelf {
+		vis = models.VisibilityPrivate
+	}
+	sc := func() *gorm.DB { return middlewareScopedDB(b.app.DB, s.Team.ID) }
+	var master *models.CalendarEvent
+	for i := range journals {
+		pe := &journals[i]
+		var ev models.CalendarEvent
+		if err := sc().Where("uid = ? AND calendar = ? AND component_type = ?", pe.UID, calName, ical.CompJournal).First(&ev).Error; err == nil {
+			ev.Title = pe.Title
+			ev.Description = pe.Description
+			ev.StartsAt = pe.StartsAt
+			ev.UpdatedAt = time.Now()
+			if err := sc().Save(&ev).Error; err != nil {
+				return nil, fmt.Errorf("caldav save journal: %w", err)
+			}
+			master = &ev
+		} else {
+			ev = models.CalendarEvent{
+				ID:            uuid.Must(uuid.NewV7()).String(),
+				TeamID:        s.Team.ID,
+				UserID:        s.User.ID,
+				UID:           pe.UID,
+				Calendar:      calName,
+				ComponentType: ical.CompJournal,
+				Title:         pe.Title,
+				Description:   pe.Description,
+				StartsAt:      pe.StartsAt,
+				Visibility:    vis,
+			}
+			if err := sc().Create(&ev).Error; err != nil {
+				return nil, fmt.Errorf("caldav create journal: %w", err)
+			}
+			master = &ev
+		}
+	}
+	if master == nil {
+		return nil, errors.New("无效的 VJOURNAL 数据")
+	}
+	obj, err := b.toObject(ctx, master, nil, calName)
+	if err != nil {
+		return nil, err
+	}
+	obj.Path = p
+	_, _ = syncLogChange(b.app.DB, s.Team.ID, calName, p, obj.ETag, false)
+	return obj, nil
 }
 
 func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
