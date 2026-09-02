@@ -4,3 +4,8 @@ backend/static/*
 debug.log
 tests/__pycache__/
 vendor/
+*.log
+*.db-*
+*.sqlite-*
+data/
+__pycache__
