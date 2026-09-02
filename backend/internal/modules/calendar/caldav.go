@@ -34,16 +34,16 @@ const (
 var errNotFound = fs.ErrNotExist
 
 func calendarPath(email string, cal string) string {
-	return "/dav/calendars/" + url.PathEscape(email) + "/" + cal + "/"
+	return "/dav/" + url.PathEscape(email) + "/calendars/" + cal + "/"
 }
 
 func principalPath(email string) string {
-	return "/dav/principals/" + url.PathEscape(email) + "/"
+	return "/dav/" + url.PathEscape(email) + "/"
 }
 
 func calNameFromPath(p string) string {
 	parts := strings.Split(strings.Trim(p, "/"), "/")
-	if len(parts) >= 3 && parts[0] == "dav" && parts[1] == "calendars" {
+	if len(parts) >= 4 && parts[0] == "dav" && parts[2] == "calendars" {
 		return parts[3]
 	}
 	return ""
@@ -71,7 +71,7 @@ func (b *davBackend) CurrentUserPrincipal(ctx context.Context) (string, error) {
 }
 
 func (b *davBackend) CalendarHomeSetPath(ctx context.Context) (string, error) {
-	return "/dav/calendars/" + url.PathEscape(b.session(ctx).Email) + "/", nil
+	return "/dav/" + url.PathEscape(b.session(ctx).Email) + "/calendars/", nil
 }
 
 func (b *davBackend) CreateCalendar(ctx context.Context, calendar *caldav.Calendar) error {
@@ -280,14 +280,87 @@ func (b *davBackend) QueryCalendarObjects(ctx context.Context, p string, query *
 		}
 		out = append(out, *obj)
 	}
-	return out, nil
+	if query == nil {
+		return out, nil
+	}
+	// caldav.Filter also applies time-range matching, but its
+	// matchCompTimeRange only handles VEVENT and would drop every VTODO.
+	// We already filtered by time-range above, so strip the range and let the
+	// library match comp-type / text-match only.
+	strip := &caldav.CalendarQuery{CompRequest: query.CompRequest}
+	strip.CompFilter = withoutTimeRange(query.CompFilter)
+	return caldav.Filter(strip, out)
 }
 
-func todoInRange(t *models.Todo, start, end time.Time) bool {
-	if t.DueAt == nil {
-		return true
+// withoutTimeRange returns a deep copy of f with all time-range bounds cleared.
+func withoutTimeRange(f caldav.CompFilter) caldav.CompFilter {
+	g := f
+	g.Start, g.End = time.Time{}, time.Time{}
+	g.Props = make([]caldav.PropFilter, len(f.Props))
+	for i, p := range f.Props {
+		g.Props[i] = p
+		g.Props[i].Start, g.Props[i].End = time.Time{}, time.Time{}
 	}
-	return !t.DueAt.Before(start) && !t.DueAt.After(end)
+	g.Comps = make([]caldav.CompFilter, len(f.Comps))
+	for i := range f.Comps {
+		g.Comps[i] = withoutTimeRange(f.Comps[i])
+	}
+	return g
+}
+
+// todoInRange reports whether a VTODO overlaps a time range per RFC4791 §9.9.
+// The model tracks DTSTART (StartAt) and DUE (DueAt); a VTODO with a DURATION
+// but no DUE is folded by ParseTodo so that only DTSTART applies.
+func todoInRange(t *models.Todo, start, end time.Time) bool {
+	switch {
+	case t.StartAt != nil && t.DueAt != nil:
+		// RFC4791 §9.9 row: DTSTART=Y, DURATION=N, DUE=Y
+		// ((start < DUE) OR (start <= DTSTART)) AND ((end > DTSTART) OR (end >= DUE))
+		return (rfcStartLt(start, *t.DueAt) || rfcStartLe(start, *t.StartAt)) &&
+			(rfcEndGt(end, *t.StartAt) || rfcEndGe(end, *t.DueAt))
+	case t.StartAt != nil:
+		// RFC4791 §9.9 row: DTSTART=Y, DURATION=N, DUE=N
+		// (start <= DTSTART) AND (end > DTSTART)
+		return rfcStartLe(start, *t.StartAt) && rfcEndGt(end, *t.StartAt)
+	case t.DueAt != nil:
+		// RFC4791 §9.9 row: DTSTART=N, DURATION=N, DUE=Y
+		// (start < DUE) AND (end >= DUE)
+		return rfcStartLt(start, *t.DueAt) && rfcEndGe(end, *t.DueAt)
+	case t.Completed:
+		// RFC4791 §9.9 row: DTSTART=N, DURATION=N, DUE=N, COMPLETED=Y
+		// ((start <= CREATED) OR (start <= COMPLETED)) AND
+		// ((end >= CREATED) OR (end >= COMPLETED))
+		c := t.CreatedAt
+		done := t.CompletedAt
+		if done == nil {
+			return false
+		}
+		return (rfcStartLe(start, c) || rfcStartLe(start, *done)) &&
+			(rfcEndGe(end, c) || rfcEndGe(end, *done))
+	default:
+		// RFC4791 §9.9 row: no DTSTART/DURATION/DUE/COMPLETED.
+		// (end > CREATED)
+		return rfcEndGt(end, t.CreatedAt)
+	}
+}
+
+// The RFC uses a lower bound that is inclusive of `start` and an upper bound
+// exclusive of `end`. A zero time.Time means that side of the range is unset
+// (treated as unbounded).
+func rfcStartLe(start, x time.Time) bool {
+	return start.IsZero() || !start.After(x)
+}
+
+func rfcStartLt(start, x time.Time) bool {
+	return start.IsZero() || start.Before(x)
+}
+
+func rfcEndGt(end, x time.Time) bool {
+	return end.IsZero() || end.After(x)
+}
+
+func rfcEndGe(end, x time.Time) bool {
+	return end.IsZero() || !end.Before(x)
 }
 
 func inRange(ev *models.CalendarEvent, start, end time.Time) bool {
@@ -315,6 +388,13 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 	}
 	parsed := ParseEvents(cal)
 	if len(parsed) == 0 {
+		// Check if calendar contains only unsupported components (VJOURNAL).
+		// Return 409 with PreconditionSupportedCalendarComponent instead of 500.
+		for _, c := range cal.Children {
+			if c.Name == ical.CompJournal || c.Name == ical.CompFreeBusy {
+				return nil, caldav.NewPreconditionError(caldav.PreconditionSupportedCalendarComponent)
+			}
+		}
 		return nil, errors.New("无效的 iCalendar 数据")
 	}
 	pe := parsed[0]

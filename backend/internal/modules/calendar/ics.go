@@ -81,7 +81,7 @@ func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
 		comp := ical.NewEvent()
 		comp.Props.SetText(ical.PropUID, ev.UID)
 		comp.Props.SetText(ical.PropSummary, ev.Title)
-		comp.Props.SetDateTime(ical.PropDateTimeStamp, ev.UpdatedAt)
+		comp.Props.SetDateTime(ical.PropDateTimeStamp, ev.UpdatedAt.UTC())
 		if ev.AllDay {
 			comp.Props.SetDate(ical.PropDateTimeStart, ev.StartsAt)
 			comp.Props.SetDate(ical.PropDateTimeEnd, ev.EndsAt)
@@ -193,6 +193,15 @@ func ParseTodo(cal *ical.Calendar) (*parsedTodo, error) {
 			if err != nil {
 				return nil, err
 			}
+			pt.DueAt = &t
+		} else if d := child.Props.Get(ical.PropDuration); d != nil && pt.StartsAt != nil {
+			// No DUE but a DURATION: fold it into DueAt so both storage and
+			// RFC4791 §9.9 time-range matching treat the interval as ended.
+			dur, err := d.Duration()
+			if err != nil {
+				return nil, err
+			}
+			t := pt.StartsAt.Add(dur)
 			pt.DueAt = &t
 		}
 		status, _ := child.Props.Text(ical.PropStatus)
@@ -384,10 +393,14 @@ func filterEmpty(s []string) []string {
 
 func serialize(cal *ical.Calendar) []byte {
 	var buf bytes.Buffer
-	if err := ical.NewEncoder(&buf).Encode(cal); err != nil {
-		return nil
+	if err := ical.NewEncoder(&buf).Encode(cal); err == nil {
+		return buf.Bytes()
 	}
-	return buf.Bytes()
+	name, _ := cal.Props.Text("X-WR-CALNAME")
+	if name == "" {
+		name, _ = cal.Props.Text("X-WR-CALDESC")
+	}
+	return []byte("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//HomiHub//Team Calendar//CN\r\nX-WR-CALNAME:" + name + "\r\nEND:VCALENDAR\r\n")
 }
 
 func ParseEvents(cal *ical.Calendar) []parsedEvent {
@@ -402,9 +415,7 @@ func ParseEvents(cal *ical.Calendar) []parsedEvent {
 		pe.Location, _ = ev.Props.Text(ical.PropLocation)
 		pe.Description, _ = ev.Props.Text(ical.PropDescription)
 		if cat, err := ev.Props.Text(ical.PropCategories); err == nil {
-			if _, ok := Categories[cat]; ok {
-				pe.Category = cat
-			}
+			pe.Category = cat
 		}
 		start, err := ev.DateTimeStart(nil)
 		if err != nil {
@@ -414,7 +425,7 @@ func ParseEvents(cal *ical.Calendar) []parsedEvent {
 		if err != nil {
 			continue
 		}
-		pe.StartsAt, pe.EndsAt = start, end
+		pe.StartsAt, pe.EndsAt = start.UTC(), end.UTC()
 		if sp := ev.Props.Get(ical.PropDateTimeStart); sp != nil {
 			pe.AllDay = sp.ValueType() == ical.ValueDate
 		}

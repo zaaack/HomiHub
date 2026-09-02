@@ -42,6 +42,7 @@ No automated tests exist yet. See `docs/TESTING.md` for planned test suites (Cal
 
 ## Gotchas
 
+- 禁止 `find /`（find 根目录）之类扫描整个文件系统的操作；只在项目目录内搜索。
 - `build.sh` does `rm -rf backend/static/*` before copying frontend dist — don't put anything you need in `backend/static/`.
 - `pnpm-lock.yaml` is the lockfile; use `pnpm install --frozen-lockfile` in CI/scripts.
 - No `README` exists. This file is the primary orientation doc.
