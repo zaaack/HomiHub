@@ -2,6 +2,7 @@ package modulecalendar
 
 import (
 	"strings"
+	"time"
 
 	"github.com/emersion/go-ical"
 	"github.com/emersion/go-webdav/caldav"
@@ -59,6 +60,11 @@ func matchCIFilter(filter caldav.CompFilter, comp *ical.Component) (bool, error)
 }
 
 func matchCICompFilter(filter caldav.CompFilter, comp *ical.Component) (bool, error) {
+	// A VALARM comp-filter with a time-range bounds the alarm's trigger time
+	// (RFC 4791 §9.9); the trigger is relative to the parent event's DTSTART.
+	if filter.Name == ical.CompAlarm && (!filter.Start.IsZero() || !filter.End.IsZero()) {
+		return matchCIAlarmRange(filter, comp), nil
+	}
 	var matches []*ical.Component
 	for _, child := range comp.Children {
 		match, err := matchCIFilter(filter, child)
@@ -74,10 +80,52 @@ func matchCICompFilter(filter caldav.CompFilter, comp *ical.Component) (bool, er
 	return true, nil
 }
 
+// matchCIAlarmRange reports whether any VALARM child of comp triggers within
+// [filter.Start, filter.End).  Relative TRIGGERs are anchored to the parent
+// event's DTSTART; absolute TRIGGERs are compared directly.
+func matchCIAlarmRange(filter caldav.CompFilter, comp *ical.Component) bool {
+	start := time.Time{}
+	if sp := comp.Props.Get(ical.PropDateTimeStart); sp != nil {
+		if t, err := sp.DateTime(nil); err == nil {
+			start = t
+		}
+	}
+	for _, child := range comp.Children {
+		if child.Name != ical.CompAlarm {
+			continue
+		}
+		tr := child.Props.Get(ical.PropTrigger)
+		if tr == nil {
+			continue
+		}
+		var trigger time.Time
+		switch tr.ValueType() {
+		case ical.ValueDateTime, ical.ValueDate:
+			if t, err := tr.DateTime(nil); err == nil {
+				trigger = t
+			}
+		default:
+			if !start.IsZero() {
+				trigger = start.Add(time.Duration(parseTrigger(tr.Value)) * time.Second)
+			}
+		}
+		if trigger.IsZero() {
+			continue
+		}
+		if !trigger.Before(filter.Start) && (filter.End.IsZero() || trigger.Before(filter.End)) {
+			return true
+		}
+	}
+	return false
+}
+
 func matchCIPropFilter(filter caldav.PropFilter, comp *ical.Component) (bool, error) {
 	field := comp.Props.Get(filter.Name)
 	if field == nil {
 		return filter.IsNotDefined, nil
+	}
+	if filter.IsNotDefined {
+		return false, nil
 	}
 	for _, paramFilter := range filter.ParamFilter {
 		if !matchCIParamFilter(paramFilter, field) {

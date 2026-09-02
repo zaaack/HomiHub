@@ -301,6 +301,11 @@ func (b *davBackend) ListCalendarObjects(ctx context.Context, p string, req *cal
 func queryRange(f *caldav.CompFilter) (time.Time, time.Time) {
 	start, end := f.Start, f.End
 	for i := range f.Comps {
+		// A time-range on a VALARM comp-filter bounds the alarm trigger, not
+		// the parent event; it must not leak into the DB-level event filter.
+		if f.Comps[i].Name == ical.CompAlarm {
+			continue
+		}
 		cs, ce := queryRange(&f.Comps[i])
 		if cs.IsZero() {
 			cs = start
@@ -392,7 +397,9 @@ func groupInRange(master *models.CalendarEvent, exs []models.CalendarEvent, star
 	return false
 }
 
-// withoutTimeRange returns a deep copy of f with all time-range bounds cleared.
+// withoutTimeRange returns a deep copy of f with all time-range bounds cleared,
+// except on VALARM comp-filters (the DB layer has no alarm trigger to index, so
+// the filter layer must evaluate those; see matchCIFilter).
 func withoutTimeRange(f caldav.CompFilter) caldav.CompFilter {
 	g := f
 	g.Start, g.End = time.Time{}, time.Time{}
@@ -403,15 +410,26 @@ func withoutTimeRange(f caldav.CompFilter) caldav.CompFilter {
 	}
 	g.Comps = make([]caldav.CompFilter, len(f.Comps))
 	for i := range f.Comps {
-		g.Comps[i] = withoutTimeRange(f.Comps[i])
+		if f.Comps[i].Name == ical.CompAlarm {
+			g.Comps[i] = f.Comps[i]
+		} else {
+			g.Comps[i] = withoutTimeRange(f.Comps[i])
+		}
 	}
 	return g
 }
 
 // todoInRange reports whether a VTODO overlaps a time range per RFC4791 §9.9.
 // The model tracks DTSTART (StartAt) and DUE (DueAt); a VTODO with a DURATION
-// but no DUE is folded by ParseTodo so that only DTSTART applies.
+// but no DUE is folded by ParseTodo so that only DTSTART applies.  Recurring
+// VTODOs (RRULE) match when any implicit instance falls within the range.
 func todoInRange(t *models.Todo, start, end time.Time) bool {
+	if t.RRule != "" && t.StartAt != nil {
+		rr, err := parseRuleWithStart(t.RRule, *t.StartAt)
+		if err == nil && len(rr.Between(start, end, true)) > 0 {
+			return true
+		}
+	}
 	switch {
 	case t.StartAt != nil && t.DueAt != nil:
 		// RFC4791 §9.9 row: DTSTART=Y, DURATION=N, DUE=Y
@@ -530,6 +548,8 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 			ev.Location = pe.Location
 			ev.Description = pe.Description
 			ev.Category = pe.Category
+			ev.Class = pe.Class
+			ev.Duration = pe.Duration
 			ev.StartsAt = pe.StartsAt
 			ev.EndsAt = pe.EndsAt
 			ev.AllDay = pe.AllDay
@@ -553,6 +573,8 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 				Location:     pe.Location,
 				Description:  pe.Description,
 				Category:     pe.Category,
+				Class:        pe.Class,
+				Duration:     pe.Duration,
 				StartsAt:     pe.StartsAt,
 				EndsAt:       pe.EndsAt,
 				AllDay:       pe.AllDay,

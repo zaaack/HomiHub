@@ -18,6 +18,8 @@ type parsedEvent struct {
 	Location     string
 	Description  string
 	Category     string
+	Class        string
+	Duration     string
 	StartsAt     time.Time
 	EndsAt       time.Time
 	AllDay       bool
@@ -88,7 +90,11 @@ func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
 			comp.Props.SetDate(ical.PropDateTimeEnd, ev.EndsAt)
 		} else {
 			comp.Props.SetDateTime(ical.PropDateTimeStart, ev.StartsAt)
-			comp.Props.SetDateTime(ical.PropDateTimeEnd, ev.EndsAt)
+			if ev.Duration != "" {
+				comp.Props.SetText(ical.PropDuration, ev.Duration)
+			} else {
+				comp.Props.SetDateTime(ical.PropDateTimeEnd, ev.EndsAt)
+			}
 		}
 		if ev.Location != "" {
 			comp.Props.SetText(ical.PropLocation, ev.Location)
@@ -98,6 +104,9 @@ func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
 		}
 		if ev.Category != "" {
 			comp.Props.SetText(ical.PropCategories, ev.Category)
+		}
+		if ev.Class != "" {
+			comp.Props.SetText(ical.PropClass, ev.Class)
 		}
 		if ev.RRule != "" {
 			p := ical.NewProp(ical.PropRecurrenceRule)
@@ -415,7 +424,7 @@ func serialize(cal *ical.Calendar) []byte {
 func ParseEvents(cal *ical.Calendar) []parsedEvent {
 	out := []parsedEvent{}
 	for _, ev := range cal.Events() {
-		pe := parsedEvent{Category: "family"}
+		pe := parsedEvent{}
 		pe.UID, _ = ev.Props.Text(ical.PropUID)
 		if pe.UID == "" {
 			continue
@@ -425,6 +434,12 @@ func ParseEvents(cal *ical.Calendar) []parsedEvent {
 		pe.Description, _ = ev.Props.Text(ical.PropDescription)
 		if cat, err := ev.Props.Text(ical.PropCategories); err == nil {
 			pe.Category = cat
+		}
+		if cls, err := ev.Props.Text(ical.PropClass); err == nil {
+			pe.Class = cls
+		}
+		if dur := ev.Props.Get(ical.PropDuration); dur != nil {
+			pe.Duration = dur.Value
 		}
 		start, err := ev.DateTimeStart(nil)
 		if err != nil {

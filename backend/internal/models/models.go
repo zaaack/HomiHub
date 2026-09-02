@@ -78,9 +78,11 @@ type CalendarEvent struct {
 	UserID      string     `gorm:"size:36;index" json:"userId"`
 	UID         string     `gorm:"size:64;index" json:"uid"`
 	Title       string     `gorm:"size:255;not null" json:"title"`
-	Category    string     `gorm:"size:16;not null;default:family" json:"category"`
+	Category    string     `gorm:"size:16;not null" json:"category"`
 	Location    string     `gorm:"size:255" json:"location"`
 	Description string     `gorm:"size:2000" json:"description"`
+	Class       string     `gorm:"size:32" json:"-"`
+	Duration    string     `gorm:"size:64" json:"-"`
 	StartsAt    time.Time  `json:"startsAt"`
 	EndsAt      time.Time  `json:"endsAt"`
 	AllDay      bool       `json:"allDay"`
