@@ -383,6 +383,135 @@ func (b *davBackend) QueryCalendarObjects(ctx context.Context, p string, query *
 	return filterCalendarObjects(strip, out)
 }
 
+const icalUTCFormat = "20060102T150405Z"
+
+// QueryFreeBusy returns the busy periods of a calendar collection within
+// [q.Start, q.End] as a VFREEBUSY calendar (RFC 4791 §7.10).
+func (b *davBackend) QueryFreeBusy(ctx context.Context, p string, q *caldav.FreeBusyQuery) (*ical.Calendar, error) {
+	cal := calNameFromPath(p)
+	if cal == "" {
+		cal = calSelf
+	}
+	evs, _, err := b.teamItems(ctx, cal)
+	if err != nil {
+		return nil, err
+	}
+
+	start, end := q.Start, q.End
+	s := b.session(ctx)
+	cal_out := ical.NewCalendar()
+	cal_out.Props.SetText(ical.PropVersion, "2.0")
+	cal_out.Props.SetText(ical.PropProductID, "-//HomiHub//Team Calendar//CN")
+
+	fb := ical.NewComponent(ical.CompFreeBusy)
+	fb.Props.SetText(ical.PropUID, "freebusy-"+s.User.ID+"-"+start.UTC().Format(icalUTCFormat))
+	fb.Props.SetDateTime(ical.PropDateTimeStamp, time.Now().UTC())
+	fb.Props.SetDateTime(ical.PropDateTimeStart, start)
+	fb.Props.SetDateTime(ical.PropDateTimeEnd, end)
+	fb.Props.SetText(ical.PropOrganizer, "mailto:"+s.Email)
+
+	periods := b.freeBusyPeriods(evs, start, end)
+	for _, p := range periods {
+		prop := ical.NewProp(ical.PropFreeBusy)
+		prop.Value = p[0].UTC().Format(icalUTCFormat) + "/" + p[1].UTC().Format(icalUTCFormat)
+		fb.Props.Add(prop)
+	}
+	cal_out.Children = append(cal_out.Children, fb)
+	return cal_out, nil
+}
+
+// freeBusyPeriods computes the [start,end) busy intervals for events
+// overlapping the query range, expanding recurring masters and applying
+// exceptions by RECURRENCE-ID.
+func (b *davBackend) freeBusyPeriods(evs []models.CalendarEvent, start, end time.Time) [][2]time.Time {
+	// First pass: exceptions indexed by (UID, RECURRENCE-ID).
+	exceptions := map[string]models.CalendarEvent{}
+	masters := map[string]*models.CalendarEvent{}
+	var singles []models.CalendarEvent
+	for i := range evs {
+		ev := &evs[i]
+		if ev.RecurrenceID != nil {
+			exceptions[ev.UID+"|"+ev.RecurrenceID.UTC().Format(icalUTCFormat)] = *ev
+			continue
+		}
+		if ev.RRule != "" {
+			masters[ev.UID] = ev
+		} else {
+			singles = append(singles, *ev)
+		}
+	}
+
+	var periods [][2]time.Time
+	add := func(s, e time.Time) {
+		if e.Before(s) {
+			e = s
+		}
+		if !e.After(start) || !s.Before(end) {
+			return
+		}
+		if s.Before(start) {
+			s = start
+		}
+		if e.After(end) {
+			e = end
+		}
+		periods = append(periods, [2]time.Time{s, e})
+	}
+
+	for _, ev := range singles {
+		add(ev.StartsAt, ev.EndsAt)
+	}
+
+	for uid, master := range masters {
+		dur := master.EndsAt.Sub(master.StartsAt)
+		rr, err := parseRuleWithStart(master.RRule, master.StartsAt)
+		if err != nil {
+			add(master.StartsAt, master.EndsAt)
+			continue
+		}
+		for _, occ := range rr.Between(start.Add(-dur), end, true) {
+			key := uid + "|" + occ.UTC().Format(icalUTCFormat)
+			if ex, ok := exceptions[key]; ok {
+				add(ex.StartsAt, ex.EndsAt)
+			} else {
+				add(occ, occ.Add(dur))
+			}
+		}
+	}
+	return periods
+}
+
+// SearchPrincipals searches team members by display name per RFC 3744 §8.6.
+func (b *davBackend) SearchPrincipals(ctx context.Context, query *caldav.PrincipalSearchQuery) ([]caldav.PrincipalSearchResult, error) {
+	s := b.session(ctx)
+	var users []models.User
+	if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	var out []caldav.PrincipalSearchResult
+	for i := range users {
+		u := &users[i]
+		if len(query.Terms) > 0 {
+			match := false
+			for _, t := range query.Terms {
+				if strings.Contains(u.Name, t) || strings.Contains(u.Email, t) {
+					match = true
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+		out = append(out, caldav.PrincipalSearchResult{
+			Path:            principalPath(u.Email),
+			DisplayName:     u.Name,
+			CalendarHomeSet: "/dav/" + url.PathEscape(u.Email) + "/calendars/",
+		})
+	}
+	return out, nil
+}
+
 // groupInRange reports whether the master event or any exception overlaps the
 // time range (the whole UID resource is returned when any instance matches).
 func groupInRange(master *models.CalendarEvent, exs []models.CalendarEvent, start, end time.Time) bool {
