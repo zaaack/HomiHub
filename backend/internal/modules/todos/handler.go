@@ -58,6 +58,7 @@ type todoView struct {
 	HasDate   bool              `json:"hasDate"`
 	Reminders []models.Reminder `json:"reminders"`
 	ExDates   []string          `json:"exdates"`
+	Attendees []models.Attendee `json:"attendees"`
 }
 
 func toTodoView(t models.Todo) todoView {
@@ -66,6 +67,7 @@ func toTodoView(t models.Todo) todoView {
 		HasDate:   t.DueAt != nil,
 		Reminders: models.ParseReminders(t.Reminders),
 		ExDates:   exDatesToStrs(models.ExDateSplit(t.ExDate)),
+		Attendees: models.ParseAttendees(t.Attendees),
 	}
 }
 
@@ -254,7 +256,7 @@ func (h *Handler) create(c *gin.Context) {
 		todo.Percent = 100
 	}
 	// Resolve invited members before writing so the row stores the resolved set.
-	attendees, users := modulecalendar.ResolveInvitees(middleware.DB(c), cl.TeamID, in.Attendees)
+	attendees, users := modulecalendar.ResolveInvitees(h.app.DB, cl.TeamID, in.Attendees)
 	todo.Attendees = models.AttendeesJSON(attendees)
 	if err := middleware.DB(c).Create(&todo).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "create_failed")
@@ -285,7 +287,7 @@ func (h *Handler) update(c *gin.Context) {
 		return
 	}
 	prev := models.ParseAttendees(existing.Attendees)
-	attendees, users := modulecalendar.ResolveInvitees(middleware.DB(c), cl.TeamID, in.Attendees)
+	attendees, users := modulecalendar.ResolveInvitees(h.app.DB, cl.TeamID, in.Attendees)
 	updates := map[string]any{
 		"title":     in.Title,
 		"note":      in.Note,

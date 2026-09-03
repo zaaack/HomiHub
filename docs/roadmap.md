@@ -74,7 +74,7 @@
 
 ---
 
-## 四、邀请成员（日历事件 + 待办）🔄（实现中）
+## 四、邀请成员（日历事件 + 待办）✅（已实现）
 
 **现状问题**：网页“新建事件”没有邀请成员功能——只能改可见性（private/busy/team）。
 CalDAV 侧已有 iTIP/scheduling 基础设施（`scheduling.go`：PUT 带 ATTENDEE 的事件后投递

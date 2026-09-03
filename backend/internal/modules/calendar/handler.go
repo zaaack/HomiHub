@@ -318,7 +318,7 @@ func (h *Handler) create(c *gin.Context) {
 	}
 	cl := middleware.ClaimsOf(c)
 	// Resolve invited members before writing so the row stores the resolved set.
-	attendees, users := ResolveInvitees(middleware.DB(c), cl.TeamID, in.Attendees)
+	attendees, users := ResolveInvitees(h.app.DB, cl.TeamID, in.Attendees)
 	ev := models.CalendarEvent{
 		ID:          uuid.Must(uuid.NewV7()).String(),
 		TeamID:      cl.TeamID,
@@ -401,7 +401,7 @@ func (h *Handler) update(c *gin.Context) {
 		return
 	}
 	prev := models.ParseAttendees(existing.Attendees)
-	attendees, users := ResolveInvitees(middleware.DB(c), cl.TeamID, in.Attendees)
+	attendees, users := ResolveInvitees(h.app.DB, cl.TeamID, in.Attendees)
 	if err := middleware.DB(c).Model(&models.CalendarEvent{}).Where("id = ?", id).Updates(map[string]any{
 		"title":       in.Title,
 		"category":    in.Category,

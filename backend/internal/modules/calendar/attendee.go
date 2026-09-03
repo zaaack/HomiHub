@@ -2,6 +2,7 @@ package modulecalendar
 
 import (
 	"errors"
+	"log"
 	"time"
 
 	"github.com/emersion/go-ical"
@@ -61,7 +62,10 @@ func readAttendeeProps(comp *ical.Component) []models.Attendee {
 // ResolveInvitees validates member ids against the team and returns the
 // attendees (with status NEEDS-ACTION) plus the matching user rows. Invalid or
 // foreign ids are silently dropped. Callers exclude the organizer themselves.
-func ResolveInvitees(db *gorm.DB, teamID string, ids []string) ([]models.Attendee, []models.User) {
+// Each query runs on its own fresh scoped session (GORM reuses the underlying
+// statement, so chaining two queries on one handle would merge their WHEREs).
+func ResolveInvitees(base *gorm.DB, teamID string, ids []string) ([]models.Attendee, []models.User) {
+	sc := func() *gorm.DB { return middleware.ScopedDB(base, teamID) }
 	seen := map[string]bool{}
 	unique := []string{}
 	for _, id := range ids {
@@ -75,18 +79,18 @@ func ResolveInvitees(db *gorm.DB, teamID string, ids []string) ([]models.Attende
 		return nil, nil
 	}
 	var rows []models.TeamMember
-	if err := db.Where("user_id IN ?", unique).Find(&rows).Error; err != nil {
+	if err := sc().Where("user_id IN ?", unique).Find(&rows).Error; err != nil {
 		return nil, nil
 	}
-	ids = ids[:0]
+	memberIDs := make([]string, 0, len(rows))
 	for _, r := range rows {
-		ids = append(ids, r.UserID)
+		memberIDs = append(memberIDs, r.UserID)
 	}
-	if len(ids) == 0 {
+	if len(memberIDs) == 0 {
 		return nil, nil
 	}
 	var users []models.User
-	if err := db.Where("id IN ?", ids).Find(&users).Error; err != nil {
+	if err := sc().Where("id IN ?", memberIDs).Find(&users).Error; err != nil {
 		return nil, nil
 	}
 	byID := map[string]*models.User{}
@@ -137,7 +141,9 @@ func syncEventInvites(base *gorm.DB, teamID string, ev *models.CalendarEvent, us
 		if !needsInviteCopy(sc(), teamID, ev.Calendar, u.ID) {
 			continue // already visible to the invitee: no duplicate copy
 		}
-		_ = UpsertEventInviteeCopy(sc(), ev, &u)
+		if err := UpsertEventInviteeCopy(base, teamID, ev, &u); err != nil {
+			log.Printf("event invite copy upsert: %v", err)
+		}
 	}
 	removals := map[string]bool{}
 	for _, a := range prev {
@@ -162,13 +168,15 @@ func syncEventInvites(base *gorm.DB, teamID string, ev *models.CalendarEvent, us
 
 // UpsertEventInviteeCopy mirrors an organizer event into the invitee's personal
 // self calendar (same UID, private). Keeps the row's own visibility/user.
-func UpsertEventInviteeCopy(db *gorm.DB, org *models.CalendarEvent, u *models.User) error {
+func UpsertEventInviteeCopy(base *gorm.DB, teamID string, org *models.CalendarEvent, u *models.User) error {
+	sc := func() *gorm.DB { return middleware.ScopedDB(base, teamID) }
 	var row models.CalendarEvent
-	err := db.Where("user_id = ? AND calendar = ? AND uid = ? AND recurrence_id IS NULL", u.ID, calSelf, org.UID).First(&row).Error
+	err := sc().Where("user_id = ? AND calendar = ? AND uid = ? AND recurrence_id IS NULL", u.ID, calSelf, org.UID).First(&row).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	created := errors.Is(err, gorm.ErrRecordNotFound)
+	if created {
 		row = models.CalendarEvent{
 			ID:            uuid.Must(uuid.NewV7()).String(),
 			TeamID:        org.TeamID,
@@ -198,7 +206,10 @@ func UpsertEventInviteeCopy(db *gorm.DB, org *models.CalendarEvent, u *models.Us
 	row.Reminders = org.Reminders
 	row.Attendees = org.Attendees
 	row.UpdatedAt = now
-	return db.Save(&row).Error
+	if created {
+		return sc().Create(&row).Error
+	}
+	return sc().Save(&row).Error
 }
 
 // DeleteEventInviteeCopies removes invitee personal copies (master + any
@@ -215,13 +226,15 @@ func DeleteEventInviteeCopies(db *gorm.DB, uid string, userIDs []string) error {
 
 // UpsertTodoInviteeCopy mirrors an organizer todo into the invitee's personal
 // self list (same UID). The invitee's local completion/progress/order is kept.
-func UpsertTodoInviteeCopy(db *gorm.DB, org *models.Todo, u *models.User) error {
+func UpsertTodoInviteeCopy(base *gorm.DB, teamID string, org *models.Todo, u *models.User) error {
+	sc := func() *gorm.DB { return middleware.ScopedDB(base, teamID) }
 	var row models.Todo
-	err := db.Where("user_id = ? AND calendar = ? AND uid = ?", u.ID, calSelf, org.UID).First(&row).Error
+	err := sc().Where("user_id = ? AND calendar = ? AND uid = ?", u.ID, calSelf, org.UID).First(&row).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	created := errors.Is(err, gorm.ErrRecordNotFound)
+	if created {
 		row = models.Todo{
 			ID:       uuid.Must(uuid.NewV7()).String(),
 			TeamID:   org.TeamID,
@@ -247,7 +260,10 @@ func UpsertTodoInviteeCopy(db *gorm.DB, org *models.Todo, u *models.User) error 
 	row.Attendees = org.Attendees
 	row.UpdatedAt = now
 	// Preserve the invitee's own completion state — never overwrite it.
-	return db.Save(&row).Error
+	if created {
+		return sc().Create(&row).Error
+	}
+	return sc().Save(&row).Error
 }
 
 // DeleteTodoInviteeCopies removes the invitee personal copies.
@@ -273,7 +289,7 @@ func SyncTodoInvites(base *gorm.DB, teamID string, org *models.Todo, users []mod
 		if !needsInviteCopy(sc(), teamID, org.Calendar, u.ID) {
 			continue // whole-team / shared-list items are already visible
 		}
-		_ = UpsertTodoInviteeCopy(sc(), org, &u)
+		_ = UpsertTodoInviteeCopy(base, teamID, org, &u)
 	}
 	removals := map[string]bool{}
 	for _, a := range prev {
