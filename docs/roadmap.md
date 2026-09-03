@@ -130,6 +130,21 @@ organizer 的行记录受邀者（`Attendees` JSON，RFC 5545 语义），同时
   笔记卡片列表、新建/编辑笔记弹窗（标题 + 正文 + 标签 + 所属清单）、清单创建/编辑/共享弹窗。
 - 正文编辑器当前为纯文本 textarea；富文本 + 团队实时协作（yjs + TipTap）在五-C 接入。
 
+### 五-B 附件（事件/待办/笔记）✅（已实现）
+
+- `models.Attachment(TeamID, Kind, ItemID, FileID, UserID, Scope)` 关联行 +
+  `File.AttachmentOf`（附件文件在 Files 页根列表隐藏，但在 WebDAV 目录可见、可经 URL 访问）。
+- REST：`POST /api/v1/attachments`（multipart：kind + itemId + file）、
+  `GET /api/v1/attachments?kind=&itemId=`、`DELETE /api/v1/attachments/:id`。
+- 权限与所属对象一致：个人（self）项 → 个人（personal）目录、仅 owner 可写；团队/共享项 → 公共（public）目录。
+- 删除事件/待办/笔记（含删除清单级联）时同步软删附件文件与关联行；在 Files 页删除文件也会解除附件关联。
+- 前端：事件/待办/笔记编辑弹窗内置“附件”区域（上传/下载/删除），新项首次保存后可添加附件。
+
+**风险/待定**
+- 附件副本：受邀成员的 self 副本不复制附件（附件随 organizer 主行）。
+- CalDAV 侧 ATTACH 属性尚未往返（iCal ATTACH 未序列化/解析）；目前只做 Web 上传 + URL 访问。
+- 富文本实时协作见五-C（未开始）。
+
 **风险/待定**
 - 副本与 organizer 主行是两条数据：受邀者勾选完成、编辑或删除副本不会回写 organizer（如需回写，
   应改为共享清单/共享日历方案，或引入 iTIP REPLY 处理）。

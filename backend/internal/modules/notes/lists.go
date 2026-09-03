@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"homihub/backend/internal/attachments"
 	"homihub/backend/internal/httpx"
 	"homihub/backend/internal/middleware"
 	"homihub/backend/internal/models"
@@ -265,6 +266,14 @@ func (h *Handler) deleteList(c *gin.Context) {
 	if err := h.scoped(cl.TeamID).Where("calendar = ?", id).Delete(&models.CalendarShare{}).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")
 		return
+	}
+	var notes []models.CalendarEvent
+	if err := h.scoped(cl.TeamID).Where("calendar = ?", id).Find(&notes).Error; err != nil {
+		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
+		return
+	}
+	for i := range notes {
+		_ = attachments.DeleteForItem(h.app.DB, cl.TeamID, notes[i].ID)
 	}
 	if err := h.scoped(cl.TeamID).Where("calendar = ?", id).Delete(&models.CalendarEvent{}).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")

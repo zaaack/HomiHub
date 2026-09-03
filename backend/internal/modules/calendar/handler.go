@@ -12,6 +12,7 @@ import (
 	"github.com/teambition/rrule-go"
 	"gorm.io/gorm"
 
+	"homihub/backend/internal/attachments"
 	"homihub/backend/internal/httpx"
 	"homihub/backend/internal/middleware"
 	"homihub/backend/internal/models"
@@ -452,6 +453,7 @@ func (h *Handler) delete(c *gin.Context) {
 		}
 		_ = DeleteEventInviteeCopies(middleware.DB(c), ev.UID, ids)
 	}
+	_ = attachments.DeleteForItem(h.app.DB, cl.TeamID, ev.ID)
 	h.recordEventSync(&ev, true)
 	httpx.OK(c, gin.H{"ok": true})
 }

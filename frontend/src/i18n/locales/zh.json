@@ -256,6 +256,14 @@
     "rename": "重命名",
     "confirmDelete": "确定删除？"
   },
+  "attachments": {
+    "title": "附件",
+    "empty": "暂无附件",
+    "upload": "添加附件",
+    "download": "下载",
+    "delete": "删除",
+    "deleteConfirm": "确定删除该附件？"
+  },
   "team": {
     "title": "团队设置",
     "rename": "重命名",
@@ -334,6 +342,8 @@
     "event_not_found": "事件不存在",
     "todo_not_found": "待办不存在",
     "file_not_found": "文件不存在",
+    "item_not_found": "对象不存在",
+    "attachment_not_found": "附件不存在",
     "folder_not_found": "文件夹不存在",
     "invite_invalid": "邀请链接无效或已过期",
     "calendar_token_invalid": "Calendar Token 无效",

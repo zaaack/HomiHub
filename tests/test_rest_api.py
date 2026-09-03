@@ -85,6 +85,39 @@ def run():
     request("DELETE", f"/api/v1/files/folders/{folder_id}")
     check("folder delete", True)
 
+    # ------- Attachments -------
+    log("=== Attachments ===")
+    ev2 = request("POST", "/api/v1/events", {
+        "title": "AttachEvent", "startsAt": "2026-09-11T09:00:00Z",
+        "endsAt": "2026-09-11T10:00:00Z", "category": "family", "visibility": 3,
+    })
+    ev2_id = ev2["data"]["id"]
+    check("attachment target event", ev2_id)
+
+    att = multipart_upload("/api/v1/attachments", "file", "note.txt", b"attachment body\n",
+                           extra={"kind": "event", "itemId": ev2_id})
+    att_id = att["data"]["id"]
+    check("attachment upload", att_id and att["data"]["fileId"])
+
+    atts = request("GET", f"/api/v1/attachments?kind=event&itemId={ev2_id}")
+    check("attachment list", len(atts["data"]) == 1 and atts["data"][0]["name"] == "note.txt")
+
+    att_content = request("GET", f"/api/v1/files/{att['data']['fileId']}/content", raw=True)
+    check("attachment content", att_content == b"attachment body\n")
+
+    # Attachment files are hidden from the Files page listing.
+    fl = request("GET", "/api/v1/files?scope=public")
+    check("attachment hidden from files", all(x["id"] != att["data"]["fileId"] for x in fl["data"]))
+
+    # Deleting the owning item cascades the attachment: the item is gone, so
+    # listing its attachments now 404s.
+    request("DELETE", f"/api/v1/events/{ev2_id}")
+    try:
+        request("GET", f"/api/v1/attachments?kind=event&itemId={ev2_id}")
+        check("attachment cascade delete", False)
+    except Exception:
+        check("attachment cascade delete", True)
+
     # ------- Team -------
     log("=== Team ===")
     team = request("GET", "/api/v1/team")

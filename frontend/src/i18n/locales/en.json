@@ -256,6 +256,14 @@
     "rename": "Rename",
     "confirmDelete": "Delete this item?"
   },
+  "attachments": {
+    "title": "Attachments",
+    "empty": "No attachments",
+    "upload": "Add attachment",
+    "download": "Download",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this attachment?"
+  },
   "team": {
     "title": "Team settings",
     "rename": "Rename",
@@ -334,6 +342,8 @@
     "event_not_found": "Event not found",
     "todo_not_found": "Todo not found",
     "file_not_found": "File not found",
+    "item_not_found": "Item not found",
+    "attachment_not_found": "Attachment not found",
     "folder_not_found": "Folder not found",
     "invite_invalid": "Invite link is invalid or expired",
     "calendar_token_invalid": "Invalid calendar token",

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"homihub/backend/internal/attachments"
 	"homihub/backend/internal/httpx"
 	"homihub/backend/internal/middleware"
 	"homihub/backend/internal/models"
@@ -262,6 +263,7 @@ func (h *Handler) delete(c *gin.Context) {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")
 		return
 	}
+	_ = attachments.DeleteForItem(h.app.DB, cl.TeamID, ev.ID)
 	modulecalendar.LogCalendarObjectSync(h.app.DB, cl.TeamID, &ev, true)
 	httpx.OK(c, gin.H{"ok": true})
 }

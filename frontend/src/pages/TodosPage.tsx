@@ -20,6 +20,7 @@ import {
 import { api } from '../api/client'
 import { useAuth } from '../store/auth'
 import { PopConfirm } from '../components/ui/pop-confirm'
+import AttachmentField from '../components/AttachmentField'
 import type { Member, Reminder, Todo, TodoList } from '../types'
 
 function fmtLocal(iso: string | null): string {
@@ -1053,6 +1054,7 @@ export default function TodosPage() {
                 value={editing.note}
                 onChange={(e) => setEditing({ ...editing, note: e.target.value })}
               />
+              <AttachmentField kind="todo" itemId={editing.id} />
               {editing.calendar !== 'self' && (
                 <p className="flex items-center gap-1.5 text-xs text-[var(--app-muted)]">
                   <Users size={12} />

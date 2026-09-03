@@ -4,6 +4,7 @@ import { List, NotebookPen, Pencil, Plus, Trash2, Users, X } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../store/auth'
 import { PopConfirm } from '../components/ui/pop-confirm'
+import AttachmentField from '../components/AttachmentField'
 import type { Member, Note, NoteList } from '../types'
 
 const LIST_COLORS = ['#22c55e', '#4f8cff', '#ef4444', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899', '#64748b', '#84cc16', '#f97316']
@@ -472,6 +473,7 @@ export default function NotesPage() {
                 value={editing.body}
                 onChange={(e) => setEditing({ ...editing, body: e.target.value })}
               />
+              <AttachmentField kind="note" itemId={editing.id} />
               <div className="flex gap-2 pt-2">
                 <button className="btn-primary flex-1" onClick={() => void submit()} disabled={busy || (!editing.title.trim() && !editing.body.trim())}>
                   {t('notes.save')}

@@ -42,6 +42,9 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/files/folders", auth, h.createFolder)
 	g.PATCH("/files/folders/:id", auth, h.updateFolder)
 	g.DELETE("/files/folders/:id", auth, h.deleteFolder)
+	g.POST("/attachments", auth, h.createAttachment)
+	g.GET("/attachments", auth, h.listAttachments)
+	g.DELETE("/attachments/:id", auth, h.deleteAttachment)
 }
 
 func contentKey(teamID, scope, fileID string) string {
@@ -224,6 +227,8 @@ func (h *Handler) delete(c *gin.Context) {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")
 		return
 	}
+	// Detach: if the file was an item attachment, remove the link row too.
+	middleware.DB(c).Where("file_id = ?", f.ID).Delete(&models.Attachment{})
 	httpx.OK(c, gin.H{"ok": true})
 }
 

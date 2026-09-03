@@ -171,6 +171,24 @@ export interface FileItem {
   updatedAt: string
 }
 
+// A file attached to an event / todo / note item. Content is served by the
+// files module (url) so attachments are URL-accessible and stay visible on the
+// WebDAV mount while hidden from the Files page listing.
+export interface Attachment {
+  id: string
+  teamId: string
+  kind: 'event' | 'todo' | 'note'
+  itemId: string
+  fileId: string
+  userId: string
+  scope: 'public' | 'personal'
+  name: string
+  mimeType: string
+  size: number
+  url: string
+  createdAt: string
+}
+
 export interface FileFolderItem {
   id: string
   teamId: string

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Bell, ChevronLeft, ChevronRight, Plus, Users, X, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../store/auth'
+import AttachmentField from '../components/AttachmentField'
 import type { CalendarEvent, Member, Reminder, Visibility } from '../types'
 
 const CATS = ['work', 'school', 'family'] as const
@@ -743,6 +744,7 @@ export default function CalendarPage() {
                   onChange={(e) => setEditing({ ...editing, description: e.target.value })}
                 />
               </div>
+              <AttachmentField kind="event" itemId={editing.id} />
               <div className="flex items-center gap-2 pt-1">
                 <input
                   type="checkbox"
