@@ -29,6 +29,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
+	github.com/homihub/go-xnet-webdav v0.0.0
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
@@ -55,3 +56,5 @@ require (
 )
 
 replace github.com/emersion/go-webdav v0.7.0 => ../vendor/go-webdav
+
+replace github.com/homihub/go-xnet-webdav v0.0.0 => ../vendor/go-xnet-webdav
