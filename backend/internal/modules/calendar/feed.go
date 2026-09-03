@@ -49,8 +49,8 @@ func (h *Handler) feedSelf(c *gin.Context) {
 	// busy events (masked below) + own dated todos.
 	var evs []models.CalendarEvent
 	if err := h.app.DB.Where(
-		"team_id = ? AND (visibility = ? OR (visibility = ? AND user_id = ?) OR visibility = ?)",
-		fam.ID, models.VisibilityTeam, models.VisibilityPrivate, user.ID, models.VisibilityBusy,
+		"team_id = ? AND (visibility = ? OR (visibility = ? AND user_id = ?) OR visibility = ?) AND component_type <> ?",
+		fam.ID, models.VisibilityTeam, models.VisibilityPrivate, user.ID, models.VisibilityBusy, ical.CompJournal,
 	).Order("starts_at").Find(&evs).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
 		return
@@ -84,8 +84,8 @@ func (h *Handler) feedTeam(c *gin.Context) {
 	}
 	// Team scope: team-visible/busy events + team todos.
 	var evs []models.CalendarEvent
-	if err := h.app.DB.Where("team_id = ? AND visibility IN ?", fam.ID,
-		[]int{models.VisibilityTeam, models.VisibilityBusy}).Order("starts_at").Find(&evs).Error; err != nil {
+	if err := h.app.DB.Where("team_id = ? AND visibility IN ? AND component_type <> ?", fam.ID,
+		[]int{models.VisibilityTeam, models.VisibilityBusy}, ical.CompJournal).Order("starts_at").Find(&evs).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
 		return
 	}

@@ -29,6 +29,7 @@ type parsedEvent struct {
 	RelatedTo    string
 	Reminders    []models.Reminder
 	Attendees    []models.Attendee
+	Tags         []string // VJOURNAL notes: CATEGORIES
 }
 
 // exDatesJoin renders exception dates as a comma-separated RFC3339 string for
@@ -161,7 +162,32 @@ func journalComponent(ev *models.CalendarEvent) *ical.Component {
 	if ev.Description != "" {
 		comp.Props.SetText(ical.PropDescription, ev.Description)
 	}
+	if ev.Class != "" {
+		comp.Props.SetText(ical.PropClass, ev.Class)
+	}
+	for _, tag := range splitCSV(ev.Tags) {
+		if tag == "" {
+			continue
+		}
+		p := ical.NewProp(ical.PropCategories)
+		p.Value = tag
+		comp.Props.Add(p)
+	}
 	return comp
+}
+
+// splitCSV splits a comma-separated column value into trimmed parts.
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // ParseJournals extracts VJOURNAL components from a calendar payload.
@@ -178,12 +204,26 @@ func ParseJournals(cal *ical.Calendar) []parsedEvent {
 		}
 		pe.Title, _ = child.Props.Text(ical.PropSummary)
 		pe.Description, _ = child.Props.Text(ical.PropDescription)
+		pe.Tags = journalCategories(child)
 		if sp := child.Props.Get(ical.PropDateTimeStart); sp != nil {
 			if t, err := sp.DateTime(nil); err == nil {
 				pe.StartsAt = t.UTC()
 			}
 		}
 		out = append(out, pe)
+	}
+	return out
+}
+
+// journalCategories collects the CATEGORIES props of a VJOURNAL as tags.
+func journalCategories(comp *ical.Component) []string {
+	var out []string
+	for _, p := range comp.Props.Values(ical.PropCategories) {
+		for _, part := range strings.Split(p.Value, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
 	}
 	return out
 }

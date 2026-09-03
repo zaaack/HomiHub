@@ -90,3 +90,27 @@ func TodoListsForUser(db *gorm.DB, teamID, userID string) []models.Calendar {
 	}
 	return out
 }
+
+// NotesListsForUser returns every custom calendar in the team that may hold
+// VJOURNAL notes the user may read: general custom calendars (legacy whole
+// team access) plus member-scoped note lists (Components includes VJOURNAL)
+// the user owns or is shared with.
+func NotesListsForUser(db *gorm.DB, teamID, userID string) []models.Calendar {
+	var cals []models.Calendar
+	if err := middleware.ScopedDB(db, teamID).Order("created_at").Find(&cals).Error; err != nil {
+		return nil
+	}
+	out := make([]models.Calendar, 0, len(cals))
+	for i := range cals {
+		c := &cals[i]
+		if !strings.Contains(strings.ToUpper(c.Components), ical.CompJournal) {
+			continue // no VJOURNAL component: no notes can live here
+		}
+		if c.Access == models.CalendarAccessMembers && c.OwnerID != userID &&
+			!isSharedCal(db, teamID, c.Name, userID) {
+			continue
+		}
+		out = append(out, *c)
+	}
+	return out
+}

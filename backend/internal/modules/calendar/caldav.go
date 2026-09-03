@@ -510,6 +510,26 @@ func todoEtag(t *models.Todo) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// LogCalendarObjectSync bumps the CalDAV sync log for an event/note changed
+// via the REST API so external clients see it through sync-collection.
+func LogCalendarObjectSync(base *gorm.DB, teamID string, ev *models.CalendarEvent, deleted bool) {
+	cal := ev.Calendar
+	if cal == "" {
+		cal = calTeam
+	}
+	var user models.User
+	if err := middleware.ScopedDB(base, teamID).Where("id = ?", ev.UserID).First(&user).Error; err != nil {
+		return
+	}
+	href := calendarPath(user.Email, cal) + ev.UID + ".ics"
+	etag := ""
+	if !deleted {
+		sum := sha256.Sum256([]byte(ev.UID + ev.Title + ev.Description + ev.Tags + ev.StartsAt.String() + ev.UpdatedAt.String()))
+		etag = hex.EncodeToString(sum[:8])
+	}
+	_, _ = syncLogChange(base, teamID, cal, href, etag, deleted)
+}
+
 // toObject renders one calendar resource containing the master event and all
 // its exceptions (same UID, RFC 4791 §4.1).
 func (b *davBackend) toObject(ctx context.Context, master *models.CalendarEvent, exs []models.CalendarEvent, cal string) (*caldav.CalendarObject, error) {
@@ -1396,6 +1416,7 @@ func (b *davBackend) putJournal(ctx context.Context, p, calName string, journals
 		if err := sc().Where("uid = ? AND calendar = ? AND component_type = ?", pe.UID, calName, ical.CompJournal).First(&ev).Error; err == nil {
 			ev.Title = pe.Title
 			ev.Description = pe.Description
+			ev.Tags = tagsToCSV(pe.Tags)
 			ev.StartsAt = pe.StartsAt
 			ev.UpdatedAt = time.Now()
 			if err := sc().Save(&ev).Error; err != nil {
@@ -1412,6 +1433,7 @@ func (b *davBackend) putJournal(ctx context.Context, p, calName string, journals
 				ComponentType: ical.CompJournal,
 				Title:         pe.Title,
 				Description:   pe.Description,
+				Tags:          tagsToCSV(pe.Tags),
 				StartsAt:      pe.StartsAt,
 				Visibility:    vis,
 			}

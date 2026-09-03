@@ -111,11 +111,23 @@ organizer 的行记录受邀者（`Attendees` JSON，RFC 5545 语义），同时
    取消邀请/删除待办时级联删除副本。
 4. 受邀副本保留受邀者本地的完成/进度状态，organizer 后续修改内容时不同步覆盖这些状态。
 
-## 五. 通过caldav 的 VJOURNAL 实现笔记模块
+## 五. 通过 caldav 的 VJOURNAL 实现笔记模块
 
 - 笔记和待办一样有分组，标签，邀请他人协作
 - VJOURNAL笔记/VEVENT日历事件/VTODO待办 的附件都上传到 caldav 对应的team/personal 目录，并通过url 访问。
-- 笔记团队实时协作编辑，用 ygo  + @tiptap/extension-collaboration
+- 笔记团队实时协作编辑，用 yjs + @tiptap/extension-collaboration
+
+### 五-A 笔记后端（VJOURNAL 行 + 清单/标签/权限）✅（后端已实现）
+- 笔记 = `CalendarEvent` 行（`ComponentType=VJOURNAL`），个人在 self、团队在 team、共享笔记在
+  成员级笔记清单（`Components=VJOURNAL` 的自定义日历，复用 `CalendarShare` 分享）。
+- REST：`GET/POST/PUT/DELETE /api/v1/notes`、`GET/POST/PUT/DELETE /api/v1/note-lists`（列表增删改仅 owner）。
+- `CalendarEvent` 增加 `Tags`（逗号分隔）列，VJOURNAL 序列化/解析为 `CATEGORIES`；
+  CalDAV PUT 回传的 VJOURNAL（含 CATEGORIES）直接出现在笔记列表中。
+- Web 事件列表/iCal 订阅不再混入 VJOURNAL；CalDAV 客户端仍可取到 VJOURNAL。
+
+### 五-A2 笔记前端 ⬜（下一阶段）
+- 侧栏清单 + 颜色/图标 + 共享角标（复用待办页的交互与弹窗），笔记正文编辑器。
+- 团队实时协作编辑（yjs + TipTap，见五-C）在此页集成。
 
 **风险/待定**
 - 副本与 organizer 主行是两条数据：受邀者勾选完成、编辑或删除副本不会回写 organizer（如需回写，

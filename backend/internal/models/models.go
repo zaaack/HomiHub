@@ -136,6 +136,7 @@ type CalendarEvent struct {
 	Visibility    int        `gorm:"default:3" json:"visibility"`
 	Attendees     string     `gorm:"type:text" json:"-"`
 	Reminders     string     `gorm:"type:text" json:"-"`
+	Tags          string     `gorm:"size:500" json:"tags"` // VJOURNAL notes: comma-separated tags (CATEGORIES)
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
 }

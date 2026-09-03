@@ -12,6 +12,7 @@ import (
 	"homihub/backend/internal/modules"
 	moduleauth "homihub/backend/internal/modules/auth"
 	modulecalendar "homihub/backend/internal/modules/calendar"
+	modulenotes "homihub/backend/internal/modules/notes"
 	moduleteam "homihub/backend/internal/modules/team"
 	modulefiles "homihub/backend/internal/modules/files"
 	modulesettings "homihub/backend/internal/modules/settings"
@@ -56,10 +57,11 @@ func New(cfg *config.Config, database *gorm.DB, staticFS http.FileSystem) *gin.E
 		"team":   api,
 		"calendar": api,
 		"todos":    api,
+		"notes":    api,
 		"files":    api,
 		"settings": api,
 	}, &moduleauth.Handler{}, &moduleteam.Handler{}, calMod,
-		&moduletodos.Handler{}, filesMod, settingsMod); err != nil {
+		&moduletodos.Handler{}, &modulenotes.Handler{}, filesMod, settingsMod); err != nil {
 		panic(err)
 	}
 	settingsMod.SetCORSProvider(cors)

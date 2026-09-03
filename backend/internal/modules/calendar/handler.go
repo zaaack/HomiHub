@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emersion/go-ical"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/teambition/rrule-go"
@@ -171,7 +172,7 @@ func (h *Handler) list(c *gin.Context) {
 	if err := middleware.DB(c).Where(
 		"visibility = ? OR (visibility = ? AND user_id = ?) OR visibility = ?",
 		models.VisibilityTeam, models.VisibilityPrivate, cl.UserID, models.VisibilityBusy,
-	).Find(&evs).Error; err != nil {
+	).Where("component_type <> ?", ical.CompJournal).Find(&evs).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
 		return
 	}
