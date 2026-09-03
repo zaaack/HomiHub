@@ -112,6 +112,19 @@ RecurrenceID *time.Time `json:"recurrenceId"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
+// ScheduleMessage is a raw iTIP message delivered to a user's schedule-inbox
+// (RFC 6638). Items are transient: clients process and delete them.
+type ScheduleMessage struct {
+	ID        string    `gorm:"primaryKey;size:36" json:"id"`
+	UserID    string    `gorm:"size:36;index" json:"userId"`
+	TeamID    string    `gorm:"size:36;index" json:"teamId"`
+	UID       string    `gorm:"size:64;index" json:"uid"`
+	Ics       string    `gorm:"type:text" json:"-"`
+	Method    string    `gorm:"size:16" json:"method"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 // Setting is a global key-value store (not tenant scoped).
 type Setting struct {
 	Key   string `gorm:"primaryKey;size:64" json:"key"`

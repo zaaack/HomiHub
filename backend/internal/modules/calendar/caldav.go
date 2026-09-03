@@ -484,9 +484,6 @@ func (b *davBackend) QueryCalendarObjects(ctx context.Context, p string, query *
 		return nil, err
 	}
 	start, end := queryRange(&query.CompFilter)
-	if end.IsZero() {
-		end = time.Now().AddDate(1, 0, 0)
-	}
 	// Group events by UID so master + exceptions are returned as one resource.
 	byUID := map[string][]models.CalendarEvent{}
 	for i := range evs {
@@ -727,6 +724,9 @@ func withoutTimeRange(f caldav.CompFilter) caldav.CompFilter {
 // but no DUE is folded by ParseTodo so that only DTSTART applies.  Recurring
 // VTODOs (RRULE) match when any implicit instance falls within the range.
 func todoInRange(t *models.Todo, start, end time.Time) bool {
+	if start.IsZero() && end.IsZero() {
+		return true
+	}
 	if t.RRule != "" && t.StartAt != nil {
 		rr, err := parseRuleWithStart(t.RRule, *t.StartAt)
 		if err == nil && len(rr.Between(start, end, true)) > 0 {
@@ -785,6 +785,9 @@ func rfcEndGe(end, x time.Time) bool {
 }
 
 func inRange(ev *models.CalendarEvent, start, end time.Time) bool {
+	if start.IsZero() && end.IsZero() {
+		return true
+	}
 	if ev.ComponentType == ical.CompJournal {
 		// VJOURNAL has a DTSTART but no DTEND; it matches when its DTSTART
 		// falls within the range (RFC 4791 §9.9 row for VJOURNAL).
@@ -914,6 +917,9 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 			}
 		}
 	}
+	// Auto-schedule: deliver the event to any registered attendee's inbox and
+	// copy it into their personal calendar (RFC 6638 SCHEDULE-AGENT=SERVER).
+	b.deliverToInboxAndAutoSchedule(ctx, cal)
 	// Reload the full bundle and return a single object.
 	var master models.CalendarEvent
 	if err := sc().Where("uid = ? AND calendar = ? AND recurrence_id IS NULL", uid, calName).First(&master).Error; err != nil {

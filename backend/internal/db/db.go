@@ -46,6 +46,7 @@ func Migrate(conn *gorm.DB) error {
 		&models.CalendarEvent{},
 		&models.Todo{},
 		&models.CalendarSyncLog{},
+		&models.ScheduleMessage{},
 		&models.File{},
 		&models.FileFolder{},
 		&models.Setting{},

@@ -28,7 +28,18 @@ type syncDAVHandler struct {
 }
 
 func (h *syncDAVHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	kind, item := scheduleMailboxPath(r.URL.Path)
 	switch {
+	case kind == "outbox" && r.Method == http.MethodPost:
+		h.handleScheduleOutboxPost(w, r)
+	case kind == "inbox" && item == "" && r.Method == "PROPFIND":
+		h.handleScheduleInboxPropfind(w, r)
+	case kind == "inbox" && item == "" && r.Method == "REPORT":
+		http.Error(w, "caldav: schedule-inbox REPORT not supported", http.StatusNotImplemented)
+	case kind == "inbox" && item != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+		h.handleScheduleInboxGet(w, r)
+	case kind == "inbox" && item != "" && r.Method == http.MethodDelete:
+		h.handleScheduleInboxDelete(w, r)
 	case r.Method == "REPORT" && isSyncCollectionReport(r):
 		h.handleSyncCollection(w, r)
 	case r.Method == "PROPFIND" && isCalendarCollectionPath(r.URL.Path):
