@@ -124,12 +124,22 @@ else
   fail "team members" "unexpected"
 fi
 
-# iCal feed
-FEED=$(api_noauth "${TEST_HOST}/api/v1/calendar/feed.ics?token=${TEST_CALTOKEN}")
+# iCal team feed (calendar token)
+FEED=$(api_noauth "${TEST_HOST}/api/v1/calendar/team.ics?token=${TEST_CALTOKEN}")
 if printf '%s' "$FEED" | grep -q "VCALENDAR"; then
-  pass "ical feed"
+  pass "ical team feed"
 else
-  fail "ical feed" "no VCALENDAR"
+  fail "ical team feed" "no VCALENDAR"
+fi
+
+# Personal (self) feed uses an App Password as the URL token — no account
+AP=$(api -X POST "${TEST_HOST}/api/v1/auth/app-passwords" -H 'Content-Type: application/json' -d '{"name":"ical test"}')
+AP_TOKEN=$(printf '%s' "$AP" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])" 2>/dev/null)
+FEED_SELF=$(api_noauth "${TEST_HOST}/api/v1/calendar/feed.ics?token=${AP_TOKEN}")
+if printf '%s' "$FEED_SELF" | grep -q "VCALENDAR"; then
+  pass "ical self feed"
+else
+  fail "ical self feed" "no VCALENDAR"
 fi
 
 # ------- Health -------

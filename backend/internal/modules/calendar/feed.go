@@ -13,72 +13,40 @@ import (
 	"homihub/backend/internal/models"
 )
 
-// feed serves an iCal subscription feed. The account decides the scope: a
-// member over Basic Auth (email + app password / calendar token) gets their
-// personal calendar (own private + team-shared events + dated todos); the
-// family ?token=<calendar_token> URL gets the team's shared calendar.
-func (h *Handler) feed(c *gin.Context) {
-	if email, pass, ok := c.Request.BasicAuth(); ok && email != "" && pass != "" {
-		h.feedAsMember(c, email, pass)
+// feedSelf serves the personal (self) iCal subscription feed at
+// GET /calendar/feed.ics. The token is the subscriber's App Password — no
+// account in the URL. It returns the member's personal calendar: team-visible
+// events of every member, the subscriber's own private events, busy events of
+// others (masked) + their own dated todos.
+func (h *Handler) feedSelf(c *gin.Context) {
+	raw := c.Query("token")
+	if raw == "" {
+		httpx.UnauthorizedT(c, "subscription_token_invalid")
 		return
 	}
-	h.feedAsTeam(c)
-}
-
-func (h *Handler) feedAsTeam(c *gin.Context) {
-	var fam models.Team
-	if err := h.app.DB.Where("calendar_token = ?", c.Query("token")).First(&fam).Error; err != nil {
-		httpx.UnauthorizedT(c, "calendar_token_invalid")
+	var tok models.Token
+	if err := h.app.DB.Where("token_hash = ? AND kind = ? AND revoked_at IS NULL",
+		middleware.HashToken(raw), "app_password").First(&tok).Error; err != nil {
+		httpx.UnauthorizedT(c, "subscription_token_invalid")
 		return
 	}
-	// Team token = the team's shared calendar: team-visible/busy events + team
-	// todos. Personal (self) events of members are never included.
-	var evs []models.CalendarEvent
-	if err := h.app.DB.Where("team_id = ? AND visibility IN ?", fam.ID,
-		[]int{models.VisibilityTeam, models.VisibilityBusy}).Order("starts_at").Find(&evs).Error; err != nil {
-		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
-		return
-	}
-	cal := BuildCalendar(fam.Name, evs)
-	var todos []models.Todo
-	if err := h.app.DB.Where("team_id = ? AND calendar = ?", fam.ID, calTeam).
-		Order("due_at").Find(&todos).Error; err == nil {
-		for i := range todos {
-			cal.Children = append(cal.Children, todoComponent(&todos[i]))
-		}
-	}
-	c.Data(http.StatusOK, "text/calendar; charset=utf-8", serialize(cal))
-}
-
-func (h *Handler) feedAsMember(c *gin.Context, email, pass string) {
-	var fam models.Team
 	var user models.User
-	authed := false
-	// 1. family calendar_token
-	if h.app.DB.Where("calendar_token = ?", pass).First(&fam).Error == nil {
-		authed = true
+	if err := h.app.DB.First(&user, "id = ?", tok.SubjectID).Error; err != nil {
+		httpx.UnauthorizedT(c, "subscription_token_invalid")
+		return
 	}
-	// 2. app_password (personal token)
-	if !authed && h.app.DB.Where("email = ?", email).First(&user).Error == nil {
-		var tok models.Token
-		if h.app.DB.Where("token_hash = ? AND kind = ? AND subject_id = ? AND revoked_at IS NULL",
-			middleware.HashToken(pass), "app_password", user.ID).First(&tok).Error == nil {
-			if err := h.app.DB.Where("id = ?", user.TeamID).First(&fam).Error; err == nil {
-				authed = true
-			}
-		}
-	}
-	if !authed {
-		httpx.UnauthorizedT(c, "calendar_token_invalid")
+	var fam models.Team
+	if err := h.app.DB.First(&fam, "id = ?", user.TeamID).Error; err != nil {
+		httpx.UnauthorizedT(c, "subscription_token_invalid")
 		return
 	}
 	var uf models.TeamMember
 	if err := h.app.DB.Where("user_id = ? AND team_id = ?", user.ID, fam.ID).First(&uf).Error; err != nil {
-		httpx.UnauthorizedT(c, "calendar_token_invalid")
+		httpx.UnauthorizedT(c, "subscription_token_invalid")
 		return
 	}
-	// Member account = personal calendar: team-visible events of every member,
-	// own private events, busy events (masked below) + own dated todos.
+	// Personal scope: team-visible events of every member, own private events,
+	// busy events (masked below) + own dated todos.
 	var evs []models.CalendarEvent
 	if err := h.app.DB.Where(
 		"team_id = ? AND (visibility = ? OR (visibility = ? AND user_id = ?) OR visibility = ?)",
@@ -97,6 +65,33 @@ func (h *Handler) feedAsMember(c *gin.Context, email, pass string) {
 	cal := BuildCalendar(fam.Name, evs)
 	var todos []models.Todo
 	if err := h.app.DB.Where("team_id = ? AND user_id = ? AND calendar = ?", fam.ID, user.ID, calSelf).
+		Order("due_at").Find(&todos).Error; err == nil {
+		for i := range todos {
+			cal.Children = append(cal.Children, todoComponent(&todos[i]))
+		}
+	}
+	c.Data(http.StatusOK, "text/calendar; charset=utf-8", serialize(cal))
+}
+
+// feedTeam serves the team's shared iCal feed at GET /calendar/team.ics. The
+// token is the team's calendar token. It returns team-visible/busy events +
+// team todos only — no member's personal (self) events are included.
+func (h *Handler) feedTeam(c *gin.Context) {
+	var fam models.Team
+	if err := h.app.DB.Where("calendar_token = ?", c.Query("token")).First(&fam).Error; err != nil {
+		httpx.UnauthorizedT(c, "subscription_token_invalid")
+		return
+	}
+	// Team scope: team-visible/busy events + team todos.
+	var evs []models.CalendarEvent
+	if err := h.app.DB.Where("team_id = ? AND visibility IN ?", fam.ID,
+		[]int{models.VisibilityTeam, models.VisibilityBusy}).Order("starts_at").Find(&evs).Error; err != nil {
+		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
+		return
+	}
+	cal := BuildCalendar(fam.Name, evs)
+	var todos []models.Todo
+	if err := h.app.DB.Where("team_id = ? AND calendar = ?", fam.ID, calTeam).
 		Order("due_at").Find(&todos).Error; err == nil {
 		for i := range todos {
 			cal.Children = append(cal.Children, todoComponent(&todos[i]))
@@ -158,6 +153,7 @@ func todoComponent(t *models.Todo) *ical.Component {
 		p.Value = t.RRule
 		comp.Props.Set(p)
 	}
+	writeAttendeeProps(comp, models.ParseAttendees(t.Attendees))
 	writeExDates(comp, exDatesSplit(t.ExDate))
 	if rem := parseRemindersJSON(t.Reminders); len(rem) > 0 {
 		base := time.Now()

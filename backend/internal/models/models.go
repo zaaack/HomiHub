@@ -75,7 +75,8 @@ type Invite struct {
 	CreatedAt time.Time  `json:"createdAt"`
 }
 
-// Calendar stores per-user/team calendar metadata for MKCALENDAR support.
+// Calendar stores per-user/team calendar metadata for MKCALENDAR support and
+// the todo lists created from the web UI (a list is a VTODO-only calendar).
 type Calendar struct {
 	ID          string    `gorm:"primaryKey;size:36" json:"id"`
 	TeamID      string    `gorm:"size:36;index:idx_cal_name,unique;index" json:"teamId"`
@@ -85,9 +86,31 @@ type Calendar struct {
 	Color       string    `gorm:"size:32" json:"color"`
 	Icon        string    `gorm:"size:64" json:"icon"`
 	Components  string    `gorm:"size:128" json:"components"` // "VEVENT,VTODO,VJOURNAL" etc.
+	Access      string    `gorm:"size:16;default:legacy" json:"access"` // ""(legacy, whole team) or CalendarAccessMembers
 	OwnerID     string    `gorm:"size:36" json:"ownerId"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// Calendar access modes.
+const (
+	// CalendarAccessLegacy marks calendars created outside the todo-list UI
+	// (MKCALENDAR etc.): VTODO rows there stay visible to the whole team, as
+	// before per-member sharing existed.
+	CalendarAccessLegacy = "legacy"
+	// CalendarAccessMembers marks todo lists created from the web UI: only the
+	// owner and the users in CalendarShare rows can see / write them.
+	CalendarAccessMembers = "members"
+)
+
+// CalendarShare grants a team member access to a member-scoped todo list (a
+// models.Calendar row with Access = CalendarAccessMembers, Components = "VTODO").
+// The owner always keeps access even without a row.
+type CalendarShare struct {
+	TeamID    string    `gorm:"size:36;primaryKey" json:"-"`
+	Calendar  string    `gorm:"size:64;primaryKey" json:"calendar"`
+	UserID    string    `gorm:"size:36;primaryKey" json:"userId"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type CalendarEvent struct {
@@ -143,6 +166,51 @@ type Reminder struct {
 	Unit  string     `json:"unit"` // min|hour|day|at
 	Value int        `json:"value"`
 	At    *time.Time `json:"at,omitempty"`
+}
+
+// Attendance statuses (RFC 5545 PARTSTAT).
+const (
+	AttendeeStatusNeedsAction = "NEEDS-ACTION"
+	AttendeeStatusAccepted    = "ACCEPTED"
+	AttendeeStatusDeclined    = "DECLINED"
+)
+
+// Attendee is a team member invited to an event or a todo. It mirrors the RFC
+// 5545 ATTENDEE property and is stored as a JSON array on the model.
+type Attendee struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
+	Status string `json:"status"` // NEEDS-ACTION | ACCEPTED | DECLINED
+}
+
+// ParseAttendees decodes the stored JSON column into an attendee slice.
+func ParseAttendees(s string) []Attendee {
+	if s == "" {
+		return nil
+	}
+	var out []Attendee
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	for i := range out {
+		if out[i].Status == "" {
+			out[i].Status = AttendeeStatusNeedsAction
+		}
+	}
+	return out
+}
+
+// AttendeesJSON encodes an attendee slice for storage.
+func AttendeesJSON(as []Attendee) string {
+	if len(as) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(as)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // CalendarSyncLog tracks calendar mutations for RFC 6578 sync-collection.
@@ -223,7 +291,8 @@ func ExDateSplit(s string) []time.Time {
 }
 
 // Todo is a task that surfaces in a CalDAV calendar as VTODO: personal todos
-// in the self calendar, team-shared todos in the team calendar.
+// in the self calendar, team-shared todos in the team calendar, and todos of
+// a todo list in its VTODO-only custom calendar (Calendar.Access members).
 type Todo struct {
 	ID          string     `gorm:"primaryKey;size:36" json:"id"`
 	TeamID      string     `gorm:"size:36;index" json:"teamId"`
@@ -232,7 +301,7 @@ type Todo struct {
 	Title       string     `gorm:"size:255;not null" json:"title"`
 	Note        string     `gorm:"size:2000" json:"note"`
 	Completed   bool       `json:"completed"`
-	Calendar    string     `gorm:"size:64;default:self;index" json:"calendar"` // "self" or "team"
+	Calendar    string     `gorm:"size:64;default:self;index" json:"calendar"` // "self", "team", or a custom list calendar name
 	Shared      bool       `gorm:"default:false" json:"shared"`
 	DueAt       *time.Time `json:"dueAt"`
 	RRule       string     `gorm:"size:255" json:"rrule"`
@@ -248,6 +317,7 @@ type Todo struct {
 	ParentID    string     `gorm:"size:36;index" json:"parentId"`
 	Order       int        `gorm:"default:0" json:"order"`
 	Reminders   string     `gorm:"type:text" json:"-"`
+	Attendees   string     `gorm:"type:text" json:"-"` // invited members (JSON), exported as ATTENDEE in VTODO
 	CreatedAt   time.Time  `json:"createdAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }

@@ -40,7 +40,8 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/events", auth, middleware.RequireWriteRole(), h.create)
 	g.PUT("/events/:id", auth, middleware.RequireWriteRole(), h.update)
 	g.DELETE("/events/:id", auth, middleware.RequireWriteRole(), h.delete)
-	g.GET("/calendar/feed.ics", h.feed)
+	g.GET("/calendar/feed.ics", h.feedSelf) // personal (self) calendar — token = App Password
+	g.GET("/calendar/team.ics", h.feedTeam)  // team shared calendar — token = Calendar Token
 }
 
 type eventInput struct {
@@ -55,6 +56,7 @@ type eventInput struct {
 	ExDates     []string          `json:"exdates"`
 	Visibility  int               `json:"visibility"`
 	Reminders   []models.Reminder `json:"reminders"`
+	Attendees   []string          `json:"attendees"` // team member ids to invite
 }
 
 func normalize(input *eventInput) (time.Time, time.Time, bool) {
@@ -103,12 +105,13 @@ func normalize(input *eventInput) (time.Time, time.Time, bool) {
 
 type eventView struct {
 	models.CalendarEvent
-	Start     time.Time         `json:"start"`
-	End       time.Time         `json:"end"`
-	Single    bool              `json:"single"`
-	Source    string            `json:"source,omitempty"`
-	Reminders []models.Reminder `json:"reminders"`
-	ExDates   []string          `json:"exdates"`
+	Start     time.Time          `json:"start"`
+	End       time.Time          `json:"end"`
+	Single    bool               `json:"single"`
+	Source    string             `json:"source,omitempty"`
+	Reminders []models.Reminder  `json:"reminders"`
+	ExDates   []string           `json:"exdates"`
+	Attendees []models.Attendee  `json:"attendees"`
 }
 
 // exDatesJoinValEx joins RFC3339 strings with a comma for the ExDate column.
@@ -152,6 +155,7 @@ func occurrenceView(ev *models.CalendarEvent, start, end time.Time) eventView {
 		Single:        ev.RRule == "",
 		Reminders:     parseRemindersJSON(ev.Reminders),
 		ExDates:       exDatesSplitStrs(ev.ExDate),
+		Attendees:     models.ParseAttendees(ev.Attendees),
 	}
 }
 
@@ -313,6 +317,8 @@ func (h *Handler) create(c *gin.Context) {
 		return
 	}
 	cl := middleware.ClaimsOf(c)
+	// Resolve invited members before writing so the row stores the resolved set.
+	attendees, users := ResolveInvitees(middleware.DB(c), cl.TeamID, in.Attendees)
 	ev := models.CalendarEvent{
 		ID:          uuid.Must(uuid.NewV7()).String(),
 		TeamID:      cl.TeamID,
@@ -329,6 +335,7 @@ func (h *Handler) create(c *gin.Context) {
 		ExDate:      exDatesJoinValEx(in.ExDates),
 		Visibility:  in.Visibility,
 		Calendar:    calForVisibility(in.Visibility),
+		Attendees:   models.AttendeesJSON(attendees),
 	}
 	if len(in.Reminders) > 0 {
 		if b, err := json.Marshal(in.Reminders); err == nil {
@@ -339,6 +346,8 @@ func (h *Handler) create(c *gin.Context) {
 		httpx.ErrT(c, http.StatusInternalServerError, "create_failed")
 		return
 	}
+	// Invitees that cannot already see the event get a private personal copy.
+	syncEventInvites(h.app.DB, cl.TeamID, &ev, users, nil, cl.UserID)
 	h.recordEventSync(&ev, false)
 	httpx.Created(c, occurrenceView(&ev, ev.StartsAt, ev.EndsAt))
 }
@@ -391,6 +400,8 @@ func (h *Handler) update(c *gin.Context) {
 		httpx.ForbiddenT(c, "edit_own_only")
 		return
 	}
+	prev := models.ParseAttendees(existing.Attendees)
+	attendees, users := ResolveInvitees(middleware.DB(c), cl.TeamID, in.Attendees)
 	if err := middleware.DB(c).Model(&models.CalendarEvent{}).Where("id = ?", id).Updates(map[string]any{
 		"title":       in.Title,
 		"category":    in.Category,
@@ -404,12 +415,14 @@ func (h *Handler) update(c *gin.Context) {
 		"visibility":  in.Visibility,
 		"calendar":    calForVisibility(in.Visibility),
 		"reminders":   remindersJSON(in.Reminders),
+		"attendees":   models.AttendeesJSON(attendees),
 	}).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")
 		return
 	}
 	var ev models.CalendarEvent
 	middleware.DB(c).First(&ev, "id = ?", id)
+	syncEventInvites(h.app.DB, cl.TeamID, &ev, users, prev, cl.UserID)
 	h.recordEventSync(&ev, false)
 	httpx.OK(c, occurrenceView(&ev, ev.StartsAt, ev.EndsAt))
 }
@@ -429,6 +442,14 @@ func (h *Handler) delete(c *gin.Context) {
 	if err := middleware.DB(c).Where("id = ?", id).Delete(&models.CalendarEvent{}).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")
 		return
+	}
+	// Cascade: drop the private copies every invitee held.
+	if prev := models.ParseAttendees(ev.Attendees); len(prev) > 0 {
+		ids := make([]string, 0, len(prev))
+		for _, a := range prev {
+			ids = append(ids, a.ID)
+		}
+		_ = DeleteEventInviteeCopies(middleware.DB(c), ev.UID, ids)
 	}
 	h.recordEventSync(&ev, true)
 	httpx.OK(c, gin.H{"ok": true})

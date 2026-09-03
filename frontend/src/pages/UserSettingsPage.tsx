@@ -171,13 +171,12 @@ export default function UserSettingsPage() {
   const base = window.location.origin
   const email = user?.email || ''
   const webdavMountUrl = `${base}/dav/files/`
-  const feedPath = '/api/v1/calendar/feed.ics'
-  const icalBasicUrl = `${base}${feedPath}`
+  const selfFeedPath = '/api/v1/calendar/feed.ics'
 
   const selectedAppPassword = appPasswords.find((p) => p.id === selectedTokenId && p.token) || null
-  const combinedIcalUrl =
-    selectedAppPassword && email
-      ? `${window.location.protocol}//${encodeURIComponent(email)}:${selectedAppPassword.token!}@${window.location.host}${feedPath}`
+  const selfIcalUrl =
+    selectedAppPassword && selectedAppPassword.token
+      ? `${base}${selfFeedPath}?token=${encodeURIComponent(selectedAppPassword.token)}`
       : ''
 
   const SectionHeader = ({ title, sectionKey, icon }: { title: string; sectionKey: string; icon: React.ReactNode }) => (
@@ -445,48 +444,19 @@ export default function UserSettingsPage() {
                   <p className="text-xs text-[var(--app-muted)]">{t('userSettings.icalNoPassword')}</p>
                 ) : (
                   <div className="space-y-3">
-                    {/* Single URL with credentials embedded */}
+                    {/* Single subscribe URL — the App Password is the token */}
                     <div>
-                      <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('userSettings.icalCombinedUrl')}</label>
+                      <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('userSettings.icalUrl')}</label>
                       <div className="flex items-start gap-2">
                         <input
                           className="input min-w-0 flex-1 font-mono text-[11px] leading-4"
                           readOnly
-                          value={combinedIcalUrl}
+                          value={selfIcalUrl}
                           onFocus={(e) => e.target.select()}
                         />
-                        <CopyButton text={combinedIcalUrl} label="ical-combined" />
+                        <CopyButton text={selfIcalUrl} label="ical-self" />
                       </div>
-                      <p className="mt-1 text-xs text-[var(--app-muted)]">{t('userSettings.icalCombinedHint')}</p>
-                    </div>
-
-                    {/* Separate URL / username / password */}
-                    <div className="rounded-lg bg-[var(--app-card-sub)] p-3">
-                      <p className="mb-2 text-xs font-medium text-[var(--app-muted)]">{t('userSettings.icalSeparateTitle')}</p>
-                      <div className="space-y-2">
-                        <div>
-                          <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('userSettings.icalBasicUrl')}</label>
-                          <div className="flex items-center gap-2">
-                            <input className="input min-w-0 flex-1 font-mono text-xs" readOnly value={icalBasicUrl} onFocus={(e) => e.target.select()} />
-                            <CopyButton text={icalBasicUrl} label="ical-url" />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('userSettings.icalBasicAccount')}</label>
-                          <div className="flex items-center gap-2">
-                            <input className="input min-w-0 flex-1 text-xs" readOnly value={email} onFocus={(e) => e.target.select()} />
-                            <CopyButton text={email} label="ical-account" />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('userSettings.icalBasicPassword')}</label>
-                          <div className="flex items-center gap-2">
-                            <RevealPassword value={selectedAppPassword.token!} className="input min-w-0 flex-1 font-mono text-xs" />
-                            <CopyButton text={selectedAppPassword.token!} label="ical-password" />
-                          </div>
-                        </div>
-                      </div>
-                      <p className="mt-2 text-xs text-[var(--app-muted)]">{t('userSettings.icalBasicHint')}</p>
+                      <p className="mt-1 text-xs text-[var(--app-muted)]">{t('userSettings.icalHintUrl')}</p>
                     </div>
                   </div>
                 )}

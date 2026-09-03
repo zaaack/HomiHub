@@ -97,6 +97,21 @@ func (s *DavSession) calAllowed(cal string) bool {
 	return true
 }
 
+// calRole reports the session's access to a calendar name: built-in self/team
+// calendars always resolve to "team" (their per-user scoping happens in the
+// item queries); custom calendars defer to TodoListRole so member-scoped todo
+// lists are only reachable by their owner and shared members.
+func (b *davBackend) calRole(ctx context.Context, name string) string {
+	if name == calSelf || name == calTeam {
+		return "team"
+	}
+	s := b.session(ctx)
+	if s == nil || s.IsTeam() || name == "" {
+		return ""
+	}
+	return TodoListRole(b.app.DB, s.Team.ID, s.User.ID, name)
+}
+
 type davKey struct{}
 
 type davBackend struct {
@@ -278,6 +293,9 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 		if len(comps) == 0 || comps[0] == "" {
 			comps = allComps
 		}
+		if b.calRole(ctx, c.Name) == "" {
+			continue // member-scoped todo list the session may not access
+		}
 		cals = append(cals, caldav.Calendar{
 			Path:                  calendarPath(s.Email, c.Name),
 			Name:                  c.DisplayName,
@@ -318,6 +336,9 @@ func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calenda
 	if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Where("name = ?", cal).First(&c).Error; err != nil {
 		return nil, errNotFound
 	}
+	if b.calRole(ctx, cal) == "" {
+		return nil, errNotFound
+	}
 	comps := strings.Split(c.Components, ",")
 	if len(comps) == 0 || comps[0] == "" {
 		comps = []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}
@@ -339,6 +360,13 @@ func (b *davBackend) DeleteCalendar(ctx context.Context, p string) error {
 	}
 	if cal == calSelf || cal == calTeam {
 		return caldav.NewHTTPError(http.StatusForbidden, "built-in calendar cannot be deleted")
+	}
+	// Member-scoped todo lists can only be removed by their owner.
+	if b.calRole(ctx, cal) == "member" {
+		return caldav.NewHTTPError(http.StatusForbidden, "only the list owner can delete it")
+	}
+	if b.calRole(ctx, cal) == "" {
+		return errNotFound
 	}
 	err := middleware.ScopedDB(b.app.DB, b.session(ctx).Team.ID).Where("name = ?", cal).Delete(&models.Calendar{}).Error
 	if err == nil {
@@ -380,6 +408,13 @@ func (b *davBackend) SetCalendar(ctx context.Context, p string, cal *caldav.Cale
 		return sc().Save(&c).Error
 	}
 	// Custom calendar.
+	role := b.calRole(ctx, calName)
+	if role == "" {
+		return errNotFound
+	}
+	if role == "member" {
+		return caldav.NewHTTPError(http.StatusForbidden, "only the list owner can change it")
+	}
 	var c models.Calendar
 	if err := sc().Where("name = ?", calName).First(&c).Error; err != nil {
 		return err
@@ -397,6 +432,10 @@ func (b *davBackend) SetCalendar(ctx context.Context, p string, cal *caldav.Cale
 // teamItems returns the resources visible in a calendar: VEVENT for both
 // calendars, plus the VTODO in the matching calendar scope.
 func (b *davBackend) teamItems(ctx context.Context, cal string) (evs []models.CalendarEvent, todos []models.Todo, err error) {
+	// Member-scoped todo lists are invisible to non-members.
+	if cal != calSelf && cal != calTeam && b.calRole(ctx, cal) == "" {
+		return nil, nil, errNotFound
+	}
 	s := b.session(ctx)
 	// Each chain gets a fresh scoped session: GORM shares the underlying
 	// statement (clone==0) and reusing one handle across chains merges WHERE
@@ -446,7 +485,7 @@ func eventUID(p string) string {
 }
 
 func eventEtag(ev *models.CalendarEvent) string {
-	sum := sha256.Sum256([]byte(ev.UID + ev.StartsAt.String() + ev.RRule + ev.Title + ev.Location + ev.Reminders + ev.UpdatedAt.String()))
+	sum := sha256.Sum256([]byte(ev.UID + ev.StartsAt.String() + ev.RRule + ev.Title + ev.Location + ev.Reminders + ev.Attendees + ev.UpdatedAt.String()))
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -460,14 +499,14 @@ func bundleEtag(evs []models.CalendarEvent) string {
 		if ev.RecurrenceID != nil {
 			rid = ev.RecurrenceID.String()
 		}
-		fmt.Fprintf(h, "%s|%s|%s|%s|%s|%s|%s|%s|", ev.UID, rid, ev.StartsAt.String(),
-			ev.RRule, ev.Title, ev.Location, ev.Reminders, ev.UpdatedAt.String())
+		fmt.Fprintf(h, "%s|%s|%s|%s|%s|%s|%s|%s|%s|", ev.UID, rid, ev.StartsAt.String(),
+			ev.RRule, ev.Title, ev.Location, ev.Reminders, ev.Attendees, ev.UpdatedAt.String())
 	}
 	return hex.EncodeToString(h.Sum(nil)[:8])
 }
 
 func todoEtag(t *models.Todo) string {
-	sum := sha256.Sum256([]byte(todoUID(t) + t.Title + t.RRule + t.Group + fmt.Sprintf("%d", t.Priority) + t.Reminders + t.UpdatedAt.String()))
+	sum := sha256.Sum256([]byte(todoUID(t) + t.Title + t.RRule + t.Group + t.Attendees + fmt.Sprintf("%d", t.Priority) + t.Reminders + t.UpdatedAt.String()))
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -644,7 +683,7 @@ func (b *davBackend) toTodoObject(ctx context.Context, t *models.Todo, cal strin
 
 func (b *davBackend) GetCalendarObject(ctx context.Context, p string, req *caldav.CalendarCompRequest) (*caldav.CalendarObject, error) {
 	cal := calNameFromPath(p)
-	if !b.session(ctx).calAllowed(cal) {
+	if !b.session(ctx).calAllowed(cal) || b.calRole(ctx, cal) == "" {
 		return nil, errNotFound
 	}
 	evs, todos, err := b.teamItems(ctx, cal)
@@ -1071,6 +1110,11 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 		return nil, caldav.NewHTTPError(http.StatusForbidden, "team account is read-only")
 	}
 	calName := calNameFromPath(p)
+	// Todo lists and other custom calendars are only writable by members that
+	// can see them (owner + sharees for member-scoped lists).
+	if calName != calSelf && calName != calTeam && b.calRole(ctx, calName) == "" {
+		return nil, caldav.NewHTTPError(http.StatusNotFound, "calendar not found")
+	}
 	switch comp := componentOf(cal); comp {
 	case ical.CompToDo:
 		if !b.supportsComponent(ctx, calName, ical.CompToDo) {
@@ -1153,6 +1197,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 			ev.RelatedTo = pe.RelatedTo
 			ev.Visibility = vis
 			ev.Calendar = calName
+			ev.Attendees = models.AttendeesJSON(pe.Attendees)
 			ev.Reminders = remindersJSON(pe.Reminders)
 			ev.UpdatedAt = time.Now()
 			if err := sc().Save(&ev).Error; err != nil {
@@ -1179,6 +1224,7 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 				RecurrenceID: pe.RecurrenceID,
 				RelatedTo:    pe.RelatedTo,
 				Visibility:   vis,
+				Attendees:    models.AttendeesJSON(pe.Attendees),
 				Reminders:    remindersJSON(pe.Reminders),
 			}
 			if err := sc().Create(&ev).Error; err != nil {
@@ -1266,6 +1312,7 @@ func (b *davBackend) putTodo(ctx context.Context, p, calName string, pt *parsedT
 		t.Tags = tagsToCSV(pt.Tags)
 		t.ParentID = pt.ParentUID
 		t.CompletedAt = pt.CompletedAt
+		t.Attendees = models.AttendeesJSON(pt.Attendees)
 		if len(pt.Reminders) > 0 {
 			if b, err := json.Marshal(pt.Reminders); err == nil {
 				t.Reminders = string(b)
@@ -1305,6 +1352,7 @@ func (b *davBackend) putTodo(ctx context.Context, p, calName string, pt *parsedT
 			Tags:        tagsToCSV(pt.Tags),
 			ParentID:    pt.ParentUID,
 			CompletedAt: pt.CompletedAt,
+			Attendees:   models.AttendeesJSON(pt.Attendees),
 		}
 		if len(pt.Reminders) > 0 {
 			if b, err := json.Marshal(pt.Reminders); err == nil {

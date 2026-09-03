@@ -15,6 +15,7 @@ import (
 	"homihub/backend/internal/middleware"
 	"homihub/backend/internal/models"
 	"homihub/backend/internal/modules"
+	modulecalendar "homihub/backend/internal/modules/calendar"
 )
 
 // recordTodoLog appends a mutation to the team's todo audit trail.
@@ -46,6 +47,10 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 	g.PUT("/todos/:id", auth, middleware.RequireWriteRole(), h.update)
 	g.PATCH("/todos/:id/toggle", auth, middleware.RequireWriteRole(), h.toggle)
 	g.DELETE("/todos/:id", auth, middleware.RequireWriteRole(), h.delete)
+	g.GET("/todo-lists", auth, h.listTodoLists)
+	g.POST("/todo-lists", auth, middleware.RequireWriteRole(), h.createTodoList)
+	g.PUT("/todo-lists/:id", auth, middleware.RequireWriteRole(), h.updateTodoList)
+	g.DELETE("/todo-lists/:id", auth, middleware.RequireWriteRole(), h.deleteTodoList)
 }
 
 type todoView struct {
@@ -73,11 +78,21 @@ func exDatesToStrs(ds []time.Time) []string {
 	return out
 }
 
-// list returns the current user's personal todos plus team-shared todos.
+// list returns the current user's personal todos plus team-shared todos and
+// the todos of every custom list they can access.
 func (h *Handler) list(c *gin.Context) {
 	cl := middleware.ClaimsOf(c)
+	custom := accessibleTodoCalNames(middleware.DB(c), cl)
+	// Keep every branch inside one WHERE group so the tenant scope (ANDed by
+	// middleware) applies to the whole OR chain.
+	parts := []string{"(calendar = ? AND user_id = ?) OR calendar = ?"}
+	args := []any{"self", cl.UserID, "team"}
+	if len(custom) > 0 {
+		parts = append(parts, "calendar IN ?")
+		args = append(args, custom)
+	}
 	var todos []models.Todo
-	if err := middleware.DB(c).Where("user_id = ? OR calendar = ?", cl.UserID, "team").
+	if err := middleware.DB(c).Where(strings.Join(parts, " OR "), args...).
 		Order("completed, \"order\", created_at").Find(&todos).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
 		return
@@ -105,9 +120,10 @@ type todoInput struct {
 	ParentID  string            `json:"parentId"`
 	Order     int               `json:"order"`
 	Shared    *bool             `json:"shared"`
-	Calendar  string            `json:"calendar"` // "self" or "team"
+	Calendar  string            `json:"calendar"` // "self", "team" or a custom list calendar
 	Completed *bool             `json:"completed"`
 	Reminders []models.Reminder `json:"reminders"`
+	Attendees []string          `json:"attendees"` // team member ids to invite (VTODO ATTENDEE)
 }
 
 func parseOptTime(s *string) (*time.Time, bool) {
@@ -187,12 +203,30 @@ func (h *Handler) create(c *gin.Context) {
 		return
 	}
 	cl := middleware.ClaimsOf(c)
+	// Where does this todo live? Explicit list ("self"/"team"/custom calendar)
+	// wins; otherwise the legacy "shared" checkbox promotes to the team list.
+	cal := "self"
+	switch in.Calendar {
+	case "", "self":
+		if in.Calendar == "" && in.Shared != nil && *in.Shared {
+			cal = "team"
+		}
+	case "team":
+		cal = "team"
+	default:
+		if !writableTodoCal(middleware.DB(c), cl.TeamID, cl.UserID, in.Calendar) {
+			httpx.NotFoundT(c, "todo_list_not_found")
+			return
+		}
+		cal = in.Calendar
+	}
 	todo := models.Todo{
 		ID:       uuid.Must(uuid.NewV7()).String(),
 		UID:      "todo-" + uuid.Must(uuid.NewV7()).String(),
 		TeamID:   cl.TeamID,
 		UserID:   cl.UserID,
-		Calendar: "self",
+		Calendar: cal,
+		Shared:   cal != "self",
 		Title:    in.Title,
 		Note:     in.Note,
 		RRule:    in.RRule,
@@ -206,10 +240,6 @@ func (h *Handler) create(c *gin.Context) {
 		ParentID: in.ParentID,
 		Order:    in.Order,
 	}
-	if in.Calendar == "team" {
-		todo.Calendar = "team"
-		todo.Shared = true
-	}
 	todo.StartAt, _ = parseOptTime(in.StartAt)
 	todo.DueAt, _ = parseOptTime(in.DueAt)
 	if len(in.Reminders) > 0 {
@@ -217,20 +247,22 @@ func (h *Handler) create(c *gin.Context) {
 			todo.Reminders = string(b)
 		}
 	}
-	if in.Shared != nil && *in.Shared {
-		todo.Calendar = "team"
-		todo.Shared = true
-	}
 	if in.Completed != nil && *in.Completed {
 		todo.Completed = true
 		now := time.Now().UTC()
 		todo.CompletedAt = &now
 		todo.Percent = 100
 	}
+	// Resolve invited members before writing so the row stores the resolved set.
+	attendees, users := modulecalendar.ResolveInvitees(middleware.DB(c), cl.TeamID, in.Attendees)
+	todo.Attendees = models.AttendeesJSON(attendees)
 	if err := middleware.DB(c).Create(&todo).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "create_failed")
 		return
 	}
+	// Invitees that cannot already see the list get a private copy in their own
+	// personal (self) list, mirroring the event invite flow.
+	modulecalendar.SyncTodoInvites(h.app.DB, cl.TeamID, &todo, users, nil, cl.UserID)
 	recordTodoLog(middleware.DB(c), cl.TeamID, cl.UserID, todo.ID, "create", "")
 	httpx.Created(c, toTodoView(todo))
 }
@@ -248,10 +280,12 @@ func (h *Handler) update(c *gin.Context) {
 		httpx.NotFoundT(c, "todo_not_found")
 		return
 	}
-	if existing.Calendar != "team" && existing.UserID != cl.UserID {
+	if !canWriteTodo(middleware.DB(c), cl, &existing) {
 		httpx.ForbiddenT(c, "forbidden")
 		return
 	}
+	prev := models.ParseAttendees(existing.Attendees)
+	attendees, users := modulecalendar.ResolveInvitees(middleware.DB(c), cl.TeamID, in.Attendees)
 	updates := map[string]any{
 		"title":     in.Title,
 		"note":      in.Note,
@@ -279,19 +313,30 @@ func (h *Handler) update(c *gin.Context) {
 	if du, ok := parseOptTime(in.DueAt); ok {
 		updates["due_at"] = du
 	}
-	if in.Calendar == "team" {
+	// Moving a todo to another list (or back to personal) requires write
+	// access to the target list; built-in self/team handle the legacy checkbox.
+	// Only the row owner may move it into their personal (self) list.
+	if in.Calendar != "" && in.Calendar != existing.Calendar {
+		if in.Calendar == "self" && existing.UserID != cl.UserID {
+			httpx.ForbiddenT(c, "forbidden")
+			return
+		}
+		if !writableTodoCal(middleware.DB(c), cl.TeamID, cl.UserID, in.Calendar) {
+			httpx.NotFoundT(c, "todo_list_not_found")
+			return
+		}
+		updates["calendar"] = in.Calendar
+		updates["shared"] = in.Calendar != "self"
+	} else if in.Calendar == "" && in.Shared != nil && existing.Calendar == "self" && *in.Shared {
 		updates["calendar"] = "team"
 		updates["shared"] = true
-	} else if in.Calendar == "self" {
+	} else if in.Calendar == "" && in.Shared != nil && existing.Calendar == "team" && !*in.Shared {
+		if existing.UserID != cl.UserID {
+			httpx.ForbiddenT(c, "forbidden")
+			return
+		}
 		updates["calendar"] = "self"
 		updates["shared"] = false
-	} else if in.Shared != nil {
-		if *in.Shared {
-			updates["calendar"] = "team"
-		} else {
-			updates["calendar"] = "self"
-		}
-		updates["shared"] = *in.Shared
 	}
 	if in.Completed != nil {
 		updates["completed"] = *in.Completed
@@ -303,12 +348,15 @@ func (h *Handler) update(c *gin.Context) {
 			updates["completed_at"] = nil
 		}
 	}
+	updates["attendees"] = models.AttendeesJSON(attendees)
 	if err := middleware.DB(c).Model(&models.Todo{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")
 		return
 	}
 	var todo models.Todo
 	middleware.DB(c).First(&todo, "id = ?", id)
+	// Refresh / prune invitee copies when the attendee set or the list changed.
+	modulecalendar.SyncTodoInvites(h.app.DB, cl.TeamID, &todo, users, prev, cl.UserID)
 	recordTodoLog(middleware.DB(c), cl.TeamID, cl.UserID, id, "update", "")
 	httpx.OK(c, toTodoView(todo))
 }
@@ -320,7 +368,7 @@ func (h *Handler) toggle(c *gin.Context) {
 		httpx.NotFoundT(c, "todo_not_found")
 		return
 	}
-	if todo.Calendar != "team" && todo.UserID != cl.UserID {
+	if !canWriteTodo(middleware.DB(c), cl, &todo) {
 		httpx.ForbiddenT(c, "forbidden")
 		return
 	}
@@ -351,7 +399,7 @@ func (h *Handler) delete(c *gin.Context) {
 		httpx.NotFoundT(c, "todo_not_found")
 		return
 	}
-	if todo.Calendar != "team" && todo.UserID != cl.UserID {
+	if !canWriteTodo(middleware.DB(c), cl, &todo) {
 		httpx.ForbiddenT(c, "forbidden")
 		return
 	}
@@ -359,6 +407,47 @@ func (h *Handler) delete(c *gin.Context) {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")
 		return
 	}
+	// Cascade: drop the private copies every invitee held.
+	if prev := models.ParseAttendees(todo.Attendees); len(prev) > 0 {
+		ids := make([]string, 0, len(prev))
+		for _, a := range prev {
+			ids = append(ids, a.ID)
+		}
+		_ = modulecalendar.DeleteTodoInviteeCopies(middleware.DB(c), todo.UID, ids)
+	}
 	recordTodoLog(middleware.DB(c), cl.TeamID, cl.UserID, id, "delete", "")
 	httpx.OK(c, gin.H{"ok": true})
+}
+
+// accessibleTodoCalNames returns the names of the custom calendars (excluding
+// built-in self/team) whose todos the user may read.
+func accessibleTodoCalNames(db *gorm.DB, cl *middleware.Claims) []string {
+	cals := modulecalendar.TodoListsForUser(db, cl.TeamID, cl.UserID)
+	names := make([]string, 0, len(cals))
+	for i := range cals {
+		names = append(names, cals[i].Name)
+	}
+	return names
+}
+
+// canWriteTodo reports whether the user may edit/toggle/delete a todo row:
+// their own personal todos, anything in the built-in team calendar, and the
+// todos of custom calendars the user can access.
+func canWriteTodo(db *gorm.DB, cl *middleware.Claims, t *models.Todo) bool {
+	switch t.Calendar {
+	case "self":
+		return t.UserID == cl.UserID
+	case "team":
+		return true
+	}
+	return modulecalendar.TodoListRole(db, cl.TeamID, cl.UserID, t.Calendar) != ""
+}
+
+// writableTodoCal reports whether todos may be created in / moved into a
+// calendar (built-in or an accessible custom list).
+func writableTodoCal(db *gorm.DB, teamID, userID, calName string) bool {
+	if calName == "self" || calName == "team" {
+		return true
+	}
+	return modulecalendar.TodoListRole(db, teamID, userID, calName) != ""
 }

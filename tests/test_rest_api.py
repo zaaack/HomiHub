@@ -94,9 +94,15 @@ def run():
     check("team members", len(members["data"]) >= 1)
 
     import urllib.request
-    feed = urllib.request.urlopen(
-        f"{TEST_HOST}/api/v1/calendar/feed.ics?token={caltoken()}").read().decode()
-    check("ical feed", "VCALENDAR" in feed)
+    feed_team = urllib.request.urlopen(
+        f"{TEST_HOST}/api/v1/calendar/team.ics?token={caltoken()}").read().decode()
+    check("ical team feed", "VCALENDAR" in feed_team)
+
+    # Personal (self) feed is keyed by an App Password in the URL — no account.
+    ap = request("POST", "/api/v1/auth/app-passwords", {"name": "ical test"})
+    feed_self = urllib.request.urlopen(
+        f"{TEST_HOST}/api/v1/calendar/feed.ics?token={ap['data']['token']}").read().decode()
+    check("ical self feed", "VCALENDAR" in feed_self)
 
     # ------- Health -------
     check("health", request("GET", "/health")["status"] == "ok")

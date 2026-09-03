@@ -28,6 +28,7 @@ type parsedEvent struct {
 	RecurrenceID *time.Time
 	RelatedTo    string
 	Reminders    []models.Reminder
+	Attendees    []models.Attendee
 }
 
 // exDatesJoin renders exception dates as a comma-separated RFC3339 string for
@@ -133,6 +134,7 @@ func BuildCalendar(name string, evs []models.CalendarEvent) *ical.Calendar {
 		if rem := parseRemindersJSON(ev.Reminders); len(rem) > 0 {
 			addAlarms(comp.Component, ev.StartsAt, rem)
 		}
+		writeAttendeeProps(comp.Component, models.ParseAttendees(ev.Attendees))
 		writeExDates(comp.Component, exDatesSplit(ev.ExDate))
 		cal.Children = append(cal.Children, comp.Component)
 	}
@@ -223,6 +225,7 @@ type parsedTodo struct {
 	ParentUID    string
 	Reminders    []models.Reminder
 	CompletedAt  *time.Time
+	Attendees    []models.Attendee
 }
 
 var errNoTodo = errors.New("no VTODO in calendar")
@@ -322,6 +325,7 @@ func ParseTodo(cal *ical.Calendar) (*parsedTodo, error) {
 				pt.Reminders = append(pt.Reminders, r)
 			}
 		}
+		pt.Attendees = readAttendeeProps(child)
 		return pt, nil
 	}
 	return nil, errNoTodo
@@ -530,6 +534,7 @@ func ParseEvents(cal *ical.Calendar) []parsedEvent {
 				pe.Reminders = append(pe.Reminders, r)
 			}
 		}
+		pe.Attendees = readAttendeeProps(ev.Component)
 		out = append(out, pe)
 	}
 	return out

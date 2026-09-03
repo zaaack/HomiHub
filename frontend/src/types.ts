@@ -48,6 +48,14 @@ export interface Reminder {
   at?: string
 }
 
+// A team member invited to an event / todo (RFC 5545 ATTENDEE semantics).
+export interface Attendee {
+  id: string
+  name: string
+  email: string
+  status: string
+}
+
 export interface CalendarEvent {
   id: string
   teamId: string
@@ -70,6 +78,7 @@ export interface CalendarEvent {
   single: boolean
   source?: 'todo'
   reminders?: Reminder[]
+  attendees?: Attendee[]
 }
 
 export interface Todo {
@@ -95,8 +104,29 @@ export interface Todo {
   order: number
   hasDate: boolean
   reminders: Reminder[]
+  attendees?: Attendee[]
   createdAt: string
   updatedAt: string
+}
+
+export interface TodoListMember {
+  id: string
+  name: string
+}
+
+// A todo list is a VTODO-only calendar: "self" (personal), "team" (built-in
+// team list) or a custom calendar created from the todos page.
+export interface TodoList {
+  id: string
+  kind: 'personal' | 'team' | 'custom'
+  name: string
+  color: string
+  icon: string
+  ownerId: string
+  access: string // 'legacy' | 'members'
+  canEdit: boolean
+  writable: boolean
+  members: TodoListMember[]
 }
 
 export interface FileItem {

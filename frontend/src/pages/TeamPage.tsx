@@ -77,7 +77,7 @@ export default function TeamPage() {
   }
 
   const inviteUrl = (link: string) => `${window.location.origin}/join?code=${encodeURIComponent(link)}`
-  const icsUrl = (token: string) => `${window.location.origin}/api/v1/calendar/feed.ics?token=${encodeURIComponent(token)}`
+  const icsUrl = (token: string) => `${window.location.origin}/api/v1/calendar/team.ics?token=${encodeURIComponent(token)}`
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">

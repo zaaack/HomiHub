@@ -13,9 +13,14 @@ import {
   Users,
   Tag,
   ChevronRight,
+  Pencil,
+  Inbox,
+  FilterX,
 } from 'lucide-react'
 import { api } from '../api/client'
-import type { Reminder, Todo } from '../types'
+import { useAuth } from '../store/auth'
+import { PopConfirm } from '../components/ui/pop-confirm'
+import type { Member, Reminder, Todo, TodoList } from '../types'
 
 function fmtLocal(iso: string | null): string {
   if (!iso) return ''
@@ -23,6 +28,11 @@ function fmtLocal(iso: string | null): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+const LIST_COLORS = ['#4f8cff', '#22c55e', '#ef4444', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899', '#64748b', '#84cc16', '#f97316']
+const LIST_ICONS = ['📋', '🛒', '💼', '🏠', '🎓', '❤️', '⭐', '🎯', '✈️', '📚', '🧹', '🏋️', '🎮', '🍔', '💊', '🎁', '🧾', '👶', '🔧', '💰']
+const PERSONAL_COLOR = '#4f8cff'
+const TEAM_COLOR = '#f59e0b'
 
 const REMINDER_OPTIONS = [
   { unit: 'min', value: 5 },
@@ -61,8 +71,6 @@ interface RRuleState {
   weekdays: number[]
   monthDays: number[]
 }
-const emptyRRule: RRuleState = { freq: 'none', interval: 1, weekdays: [], monthDays: [] }
-
 function parseRRule(rrule: string): RRuleState {
   const s: RRuleState = { freq: 'none', interval: 1, weekdays: [], monthDays: [] }
   if (!rrule) return s
@@ -105,44 +113,47 @@ interface EditForm {
   note: string
   dueAt: string
   startAt: string
-  shared: boolean
   repeat: RRuleState
-  group: string
+  calendar: string
   tags: string
   priority: number
   location: string
   url: string
   percent: number
   parentId: string
+  attendeeIds: string[]
   reminders: Reminder[]
   exdates: string[]
 }
 
-const emptyEdit = (group: string): EditForm => ({
-  title: '',
-  note: '',
-  dueAt: '',
-  startAt: '',
-  shared: false,
-  repeat: emptyRRule,
-  group,
-  tags: '',
-  priority: 0,
-  location: '',
-  url: '',
-  percent: 0,
-  parentId: '',
-  reminders: [],
-  exdates: [],
+interface ListDraft {
+  name: string
+  color: string
+  icon: string
+  memberIds: string[]
+}
+
+const emptyListDraft = (): ListDraft => ({
+  name: '',
+  color: LIST_COLORS[0],
+  icon: LIST_ICONS[0],
+  memberIds: [],
 })
 
 export default function TodosPage() {
   const { t } = useTranslation()
+  const me = useAuth((s) => s.user)
+  const [lists, setLists] = useState<TodoList[]>([])
   const [todos, setTodos] = useState<Todo[]>([])
+  const [teamMembers, setTeamMembers] = useState<Member[]>([])
   const [quick, setQuick] = useState('')
-  const [activeGroup, setActiveGroup] = useState('')
+  const [activeListId, setActiveListId] = useState('')
   const [showDone, setShowDone] = useState(false)
+  const [selTags, setSelTags] = useState<string[]>([])
+  const [prioFilter, setPrioFilter] = useState('')
   const [editing, setEditing] = useState<EditForm | null>(null)
+  const [listDraft, setListDraft] = useState<ListDraft | null>(null)
+  const [editListId, setEditListId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [atSel, setAtSel] = useState('')
   const [exSel, setExSel] = useState('')
@@ -175,23 +186,37 @@ export default function TodosPage() {
 
   const load = async () => {
     try {
-      setTodos(await api.get<Todo[]>('/api/v1/todos'))
+      const [ls, td] = await Promise.all([
+        api.get<TodoList[]>('/api/v1/todo-lists'),
+        api.get<Todo[]>('/api/v1/todos'),
+      ])
+      setLists(ls)
+      setTodos(td)
+      if (activeListId && !ls.some((l) => l.id === activeListId)) setActiveListId('')
     } catch {
+      setLists([])
       setTodos([])
     }
   }
 
   useEffect(() => {
     void load()
+    void api
+      .get<Member[]>('/api/v1/team/members')
+      .then(setTeamMembers)
+      .catch(() => setTeamMembers([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const groups = useMemo(() => {
-    const s = new Set<string>()
-    for (const td of todos) {
-      if (td.group) s.add(td.group)
-    }
-    return [...s].sort((a, b) => a.localeCompare(b, 'zh'))
-  }, [todos])
+  // Keep the list set fresh whenever a shared member could have changed it.
+  const listsById = useMemo(() => new Map(lists.map((l) => [l.id, l])), [lists])
+
+  const listDisplayName = (l: TodoList | undefined): string => {
+    if (!l) return t('todos.allTodos')
+    if (l.kind === 'personal') return t('todos.personalList')
+    if (l.kind === 'team') return t('todos.teamList')
+    return l.name || l.id
+  }
 
   const allTags = useMemo(() => {
     const s = new Set<string>()
@@ -200,19 +225,30 @@ export default function TodosPage() {
         if (tag) s.add(tag)
       }
     }
-    return [...s]
+    return [...s].sort((a, b) => a.localeCompare(b, 'zh'))
   }, [todos])
+
+  const hasFilters = selTags.length > 0 || prioFilter !== ''
 
   const filtered = useMemo(() => {
     let list = todos
-    if (activeGroup) {
-      list = list.filter((x) => x.group === activeGroup)
+    if (activeListId) {
+      list = list.filter((x) => x.calendar === activeListId)
     }
+    if (selTags.length > 0) {
+      list = list.filter((x) => {
+        const tags = x.tags.split(',').map((s) => s.trim()).filter(Boolean)
+        return selTags.every((st) => tags.includes(st))
+      })
+    }
+    if (prioFilter === 'high') list = list.filter((x) => x.priority >= 7)
+    else if (prioFilter === 'medium') list = list.filter((x) => x.priority >= 4 && x.priority <= 6)
+    else if (prioFilter === 'low') list = list.filter((x) => x.priority >= 1 && x.priority <= 3)
     if (!showDone) {
       list = list.filter((x) => !x.completed)
     }
     return list
-  }, [todos, activeGroup, showDone])
+  }, [todos, activeListId, selTags, prioFilter, showDone])
 
   const tree = useMemo(() => {
     const byParent = new Map<string, Todo[]>()
@@ -249,12 +285,16 @@ export default function TodosPage() {
 
   const isOverdue = (todo: Todo) => !!todo.dueAt && !todo.completed && new Date(todo.dueAt).getTime() < Date.now()
 
+  const activeList = activeListId ? listsById.get(activeListId) : undefined
+  // Where quick adds land: the active list, or the personal list when viewing All.
+  const quickListId = activeListId || 'self'
+
   const quickAdd = async () => {
     const title = quick.trim()
     if (!title) return
     setBusy(true)
     try {
-      await api.post('/api/v1/todos', { title, group: activeGroup })
+      await api.post('/api/v1/todos', { title, calendar: quickListId })
       setQuick('')
       await load()
     } finally {
@@ -290,14 +330,14 @@ export default function TodosPage() {
         dueAt: editing.dueAt ? new Date(editing.dueAt).toISOString() : null,
         startAt: editing.startAt ? new Date(editing.startAt).toISOString() : null,
         rrule: buildRRule(editing.repeat),
-        group: editing.group,
+        calendar: editing.calendar || 'self',
         tags: editing.tags,
         priority: editing.priority,
         location: editing.location,
         url: editing.url,
         percent: editing.percent,
         parentId: editing.parentId,
-        calendar: editing.shared ? 'team' : 'self',
+        attendees: editing.attendeeIds,
         reminders: editing.reminders,
         exdates: editing.exdates,
       }
@@ -320,66 +360,158 @@ export default function TodosPage() {
       note: todo.note,
       dueAt: fmtLocal(todo.dueAt),
       startAt: fmtLocal(todo.startAt),
-      shared: todo.calendar === 'team',
       repeat: parseRRule(todo.rrule),
-      group: todo.group,
+      calendar: todo.calendar,
       tags: todo.tags,
       priority: todo.priority,
       location: todo.location,
       url: todo.url,
       percent: todo.percent,
       parentId: todo.parentId,
+      attendeeIds: (todo.attendees ?? []).map((a) => a.id).filter(Boolean),
       reminders: todo.reminders ?? [],
       exdates: todo.exdates ?? [],
     })
   }
 
-  const openCreate = (group: string) => {
-    setActiveGroup(group)
-    setEditing(emptyEdit(group))
+  const toggleTag = (tag: string) => {
+    setSelTags((prev) => (prev.includes(tag) ? prev.filter((x) => x !== tag) : [...prev, tag]))
+  }
+
+  const clearFilters = () => {
+    setSelTags([])
+    setPrioFilter('')
+  }
+
+  const writableLists = lists.filter((l) => l.writable)
+
+  const submitList = async () => {
+    if (!listDraft || !listDraft.name.trim()) return
+    setBusy(true)
+    try {
+      const payload = {
+        name: listDraft.name.trim(),
+        color: listDraft.color,
+        icon: listDraft.icon,
+        memberIds: listDraft.memberIds,
+      }
+      if (editListId) {
+        await api.put(`/api/v1/todo-lists/${editListId}`, payload)
+      } else {
+        await api.post('/api/v1/todo-lists', payload)
+      }
+      setListDraft(null)
+      setEditListId(null)
+      await load()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const openCreateList = () => {
+    setEditListId(null)
+    setListDraft(emptyListDraft())
+  }
+
+  const openEditList = (l: TodoList) => {
+    setEditListId(l.id)
+    setListDraft({
+      name: l.name,
+      color: l.color || PERSONAL_COLOR,
+      icon: l.icon || LIST_ICONS[0],
+      memberIds: l.members?.map((m) => m.id) ?? [],
+    })
+  }
+
+  const deleteList = async (id: string) => {
+    try {
+      await api.del(`/api/v1/todo-lists/${id}`)
+      if (activeListId === id) setActiveListId('')
+      setListDraft(null)
+      setEditListId(null)
+      await load()
+    } catch {
+      /* ignore */
+    }
   }
 
   const allTop = filtered.filter((x) => !x.parentId || !filtered.some((y) => y.id === x.parentId))
-  const doneCount = todos.filter((x) => x.completed && (!activeGroup || x.group === activeGroup)).length
+  const doneCount = todos.filter((x) => x.completed && (!activeListId || x.calendar === activeListId)).length
+  const pendingIn = (id: string) => todos.filter((x) => x.calendar === id && !x.completed).length
   const weekdays = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+
+  const renderListChip = (l: TodoList, size: 'sm' | 'lg' = 'sm') => {
+    const color = l.kind === 'personal' ? PERSONAL_COLOR : l.kind === 'team' ? TEAM_COLOR : l.color || PERSONAL_COLOR
+    const shared = l.kind === 'team' || (l.members?.length ?? 0) > 0
+    const emoji = l.kind === 'custom' ? l.icon : ''
+    const cls = size === 'lg' ? 'h-9 w-9 rounded-lg text-lg' : 'h-6 w-6 rounded-md text-sm'
+    return (
+      <span className={`relative flex shrink-0 items-center justify-center ${cls}`} style={{ backgroundColor: `${color}22` }}>
+        {emoji ? (
+          <span>{emoji}</span>
+        ) : l.kind === 'personal' ? (
+          <Inbox size={size === 'lg' ? 18 : 14} style={{ color }} />
+        ) : (
+          <Users size={size === 'lg' ? 18 : 14} style={{ color }} />
+        )}
+        {shared && (
+          <span
+            className="absolute -bottom-0.5 -right-0.5 flex items-center justify-center rounded-full border border-white bg-white shadow-sm"
+            title={t('todos.shareTitle')}
+          >
+            <Users size={size === 'lg' ? 10 : 8} style={{ color }} />
+          </span>
+        )}
+      </span>
+    )
+  }
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 md:flex-row">
-      <div className="card w-full shrink-0 p-3 md:w-48">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">{t('todos.groups')}</div>
+      <div className="card w-full shrink-0 p-3 md:w-52">
         <button
-          onClick={() => setActiveGroup('')}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm ${!activeGroup ? 'bg-[var(--app-accent-soft)] font-medium' : ''}`}
+          onClick={() => setActiveListId('')}
+          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm ${!activeListId ? 'bg-[var(--app-accent-soft)] font-medium' : ''}`}
         >
-          <List size={14} />
+          <List size={14} className="shrink-0" />
           {t('todos.allTodos')}
           <span className="ml-auto text-xs text-[var(--app-muted)]">{todos.length}</span>
         </button>
-        <div className="mt-1 flex flex-col gap-0.5">
-          {groups.map((g) => {
-            const cnt = todos.filter((x) => x.group === g && !x.completed).length
+        <div className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">{t('todos.lists')}</div>
+        <div className="flex flex-col gap-0.5">
+          {lists.map((l) => {
+            const selected = activeListId === l.id
             return (
-              <button
-                key={g}
-                onClick={() => setActiveGroup(g)}
-                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${
-                  activeGroup === g ? 'bg-[var(--app-accent-soft)] font-medium' : ''
-                }`}
-              >
-                <Tag size={14} />
-                <span className="truncate">{g}</span>
-                <span className="ml-auto text-xs text-[var(--app-muted)]">{cnt}</span>
-              </button>
+              <div key={l.id} className={`group relative flex items-center rounded-md ${selected ? 'bg-[var(--app-accent-soft)]' : ''}`}>
+                <button
+                  onClick={() => setActiveListId(l.id)}
+                  className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${selected ? 'font-medium' : ''}`}
+                >
+                  {renderListChip(l)}
+                  <span className="truncate">{listDisplayName(l)}</span>
+                  <span className="ml-auto pl-1 text-xs text-[var(--app-muted)]">{pendingIn(l.id)}</span>
+                </button>
+                {l.canEdit && (
+                  <button
+                    onClick={() => openEditList(l)}
+                    className="nav-link shrink-0 rounded px-1 opacity-0 transition-opacity group-hover:opacity-100"
+                    title={t('todos.editList')}
+                  >
+                    <Pencil size={13} />
+                  </button>
+                )}
+              </div>
             )
           })}
         </div>
         <button
-          onClick={() => openCreate(activeGroup || '')}
+          onClick={openCreateList}
           className="mt-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--app-accent)]"
         >
           <Plus size={14} />
-          {t('todos.newGroup')}
+          {t('todos.newList')}
         </button>
+
         <div className="mt-4 border-t border-[var(--app-border)] pt-2">
           <button
             onClick={() => setShowDone((v) => !v)}
@@ -390,29 +522,70 @@ export default function TodosPage() {
             <span className="ml-auto text-xs text-[var(--app-muted)]">{doneCount}</span>
           </button>
         </div>
-        {allTags.length > 0 && (
-          <div className="mt-4 border-t border-[var(--app-border)] pt-2">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">{t('todos.tags')}</div>
+
+        <div className="mt-4 border-t border-[var(--app-border)] pt-2">
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">{t('todos.tags')}</div>
+          {allTags.length === 0 ? (
+            <div className="text-[11px] text-[var(--app-muted)]">{t('todos.noGroup')}</div>
+          ) : (
             <div className="flex flex-wrap gap-1">
-              {allTags.map((tag) => (
-                <span key={tag} className="rounded-full bg-[var(--app-card-sub)] px-2 py-0.5 text-[11px] text-[var(--app-muted)]">
-                  #{tag}
-                </span>
-              ))}
+              {allTags.map((tag) => {
+                const on = selTags.includes(tag)
+                return (
+                  <button
+                    key={tag}
+                    onClick={() => toggleTag(tag)}
+                    className={`rounded-full px-2 py-0.5 text-[11px] ${
+                      on ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--app-card-sub)] text-[var(--app-muted)]'
+                    }`}
+                  >
+                    #{tag}
+                  </button>
+                )
+              })}
             </div>
-          </div>
-        )}
+          )}
+          <div className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">{t('todos.priority')}</div>
+          <select className="select w-full text-sm" value={prioFilter} onChange={(e) => setPrioFilter(e.target.value)}>
+            <option value="">{t('todos.anyPriority')}</option>
+            <option value="high">{t('todos.priorityHigh')}</option>
+            <option value="medium">{t('todos.priorityMedium')}</option>
+            <option value="low">{t('todos.priorityLow')}</option>
+          </select>
+          {hasFilters && (
+            <button
+              onClick={clearFilters}
+              className="mt-2 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--app-accent)]"
+            >
+              <FilterX size={13} />
+              {t('todos.clearFilters')}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">{activeGroup || t('todos.title')}</h1>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h1 className="flex items-center gap-2 text-xl font-semibold">
+            {activeList && renderListChip(activeList, 'lg')}
+            {activeList ? listDisplayName(activeList) : t('todos.title')}
+          </h1>
+          {activeList && (
+            <span className="flex items-center gap-1 text-xs text-[var(--app-muted)]">
+              {activeList.kind !== 'personal' && (activeList.members?.length ?? 0) > 0 && (
+                <>
+                  <Users size={13} />
+                  {activeList.members.length}
+                </>
+              )}
+            </span>
+          )}
         </div>
 
         <div className="card mb-4 flex items-center gap-2 p-3">
           <input
             className="input"
-            placeholder={t('todos.addPlaceholder')}
+            placeholder={`${t('todos.addPlaceholder')} → ${listDisplayName(listsById.get(quickListId))}`}
             value={quick}
             onChange={(e) => setQuick(e.target.value)}
             onKeyDown={(e) => {
@@ -443,6 +616,118 @@ export default function TodosPage() {
         </div>
       </div>
 
+      {/* 新建 / 编辑清单弹窗 */}
+      {listDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setListDraft(null)}>
+          <div className="card w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="text-lg font-semibold">{editListId ? t('todos.editList') : t('todos.newList')}</div>
+              <button className="nav-link" onClick={() => setListDraft(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('todos.listName')}</label>
+                <input
+                  className="input"
+                  placeholder={t('todos.listNamePlaceholder')}
+                  value={listDraft.name}
+                  autoFocus
+                  onChange={(e) => setListDraft({ ...listDraft, name: e.target.value })}
+                />
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('todos.color')}</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {LIST_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setListDraft({ ...listDraft, color: c })}
+                        className="h-6 w-6 rounded-full"
+                        style={{ backgroundColor: c, outline: listDraft.color === c ? '2px solid var(--app-accent)' : 'none', outlineOffset: 1 }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('todos.icon')}</label>
+                  <div className="flex max-h-24 w-28 flex-wrap gap-1 overflow-y-auto">
+                    {LIST_ICONS.map((ic) => (
+                      <button
+                        key={ic}
+                        type="button"
+                        onClick={() => setListDraft({ ...listDraft, icon: ic })}
+                        className={`flex h-7 w-7 items-center justify-center rounded text-sm ${
+                          listDraft.icon === ic ? 'bg-[var(--app-accent-soft)] ring-1 ring-[var(--app-accent)]' : ''
+                        }`}
+                      >
+                        {ic}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('todos.shareTitle')}</label>
+                <div className="space-y-1">
+                  {teamMembers
+                    .filter((m) => m.id !== me?.id)
+                    .map((m) => {
+                      const on = listDraft.memberIds.includes(m.id)
+                      return (
+                        <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={on}
+                            onChange={(e) =>
+                              setListDraft({
+                                ...listDraft,
+                                memberIds: e.target.checked
+                                  ? [...listDraft.memberIds, m.id]
+                                  : listDraft.memberIds.filter((x) => x !== m.id),
+                              })
+                            }
+                          />
+                          {m.name}
+                        </label>
+                      )
+                    })}
+                  {teamMembers.length <= 1 && <div className="text-xs text-[var(--app-muted)]">{t('todos.shareHint')}</div>}
+                </div>
+                <p className="mt-1.5 text-[11px] text-[var(--app-muted)]">{t('todos.shareHint')}</p>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  className="btn-primary flex-1"
+                  onClick={() => void submitList()}
+                  disabled={busy || !listDraft.name.trim()}
+                >
+                  {t('common.save')}
+                </button>
+                {editListId && (
+                  <PopConfirm
+                    title={t('todos.deleteList')}
+                    description={t('todos.deleteListConfirm')}
+                    confirmText={t('common.delete')}
+                    cancelText={t('common.cancel')}
+                    onConfirm={() => void deleteList(editListId)}
+                  >
+                    <button type="button" className="btn-ghost shrink-0 text-[var(--app-danger)]" disabled={busy}>
+                      <Trash2 size={16} />
+                    </button>
+                  </PopConfirm>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新建 / 编辑待办弹窗 */}
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditing(null)}>
           <div className="card max-h-[90vh] w-full max-w-md overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
@@ -461,12 +746,15 @@ export default function TodosPage() {
               />
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('todos.group')}</label>
-                  <select className="select" value={editing.group} onChange={(e) => setEditing({ ...editing, group: e.target.value })}>
-                    <option value="">{t('todos.noGroup')}</option>
-                    {groups.map((g) => (
-                      <option key={g} value={g}>
-                        {g}
+                  <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('todos.list')}</label>
+                  <select
+                    className="select"
+                    value={editing.calendar}
+                    onChange={(e) => setEditing({ ...editing, calendar: e.target.value })}
+                  >
+                    {writableLists.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {listDisplayName(l)}
                       </option>
                     ))}
                   </select>
@@ -608,6 +896,36 @@ export default function TodosPage() {
                 />
               </div>
               <div>
+                <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('todos.inviteTitle')}</label>
+                <div className="space-y-1 rounded-lg border border-[var(--app-border)] p-2">
+                  {teamMembers
+                    .filter((m) => m.id !== me?.id)
+                    .map((m) => {
+                      const on = editing.attendeeIds.includes(m.id)
+                      return (
+                        <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={on}
+                            onChange={(e) =>
+                              setEditing({
+                                ...editing,
+                                attendeeIds: e.target.checked
+                                  ? [...editing.attendeeIds, m.id]
+                                  : editing.attendeeIds.filter((x) => x !== m.id),
+                              })
+                            }
+                          />
+                          <span className="truncate">{m.name}</span>
+                        </label>
+                      )
+                    })}
+                  {teamMembers.length <= 1 && <div className="text-xs text-[var(--app-muted)]">{t('todos.shareHint')}</div>}
+                </div>
+                <p className="mt-1.5 text-[11px] text-[var(--app-muted)]">{t('todos.inviteHint')}</p>
+              </div>
+              <div>
                 <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('todos.reminders')}</label>
                 <div className="flex flex-wrap gap-1.5">
                   {REMINDER_OPTIONS.map((r) => (
@@ -735,18 +1053,12 @@ export default function TodosPage() {
                 value={editing.note}
                 onChange={(e) => setEditing({ ...editing, note: e.target.value })}
               />
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="shared"
-                  className="h-4 w-4"
-                  checked={editing.shared}
-                  onChange={(e) => setEditing({ ...editing, shared: e.target.checked })}
-                />
-                <label htmlFor="shared" className="text-sm">
-                  {t('todos.shared')}
-                </label>
-              </div>
+              {editing.calendar !== 'self' && (
+                <p className="flex items-center gap-1.5 text-xs text-[var(--app-muted)]">
+                  <Users size={12} />
+                  {listDisplayName(listsById.get(editing.calendar))}
+                </p>
+              )}
               <div className="flex gap-2 pt-2">
                 <button className="btn-primary flex-1" onClick={() => void submit()} disabled={busy || !editing.title.trim()}>
                   {t('common.save')}
@@ -832,6 +1144,13 @@ function TodoRow({
               <span className="flex items-center gap-1">
                 <Users size={12} />
                 {t('todos.shared')}
+              </span>
+            )}
+            {todo.attendees && todo.attendees.length > 0 && (
+              <span className="flex items-center gap-1">
+                <Users size={12} />
+                {todo.attendees.slice(0, 2).map((a) => a.name || a.email).join(', ')}
+                {todo.attendees.length > 2 ? `+${todo.attendees.length - 2}` : ''}
               </span>
             )}
             {todo.tags &&

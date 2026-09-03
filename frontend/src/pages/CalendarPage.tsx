@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Bell, ChevronLeft, ChevronRight, Plus, X, Trash2 } from 'lucide-react'
+import { Bell, ChevronLeft, ChevronRight, Plus, Users, X, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
-import type { CalendarEvent, Reminder, Visibility } from '../types'
+import { useAuth } from '../store/auth'
+import type { CalendarEvent, Member, Reminder, Visibility } from '../types'
 
 const CATS = ['work', 'school', 'family'] as const
 const VIS = [1, 2, 3] as const
@@ -110,6 +111,7 @@ interface FormState {
   allDay: boolean
   repeat: RRuleState
   visibility: Visibility
+  attendees: string[] // invited team member ids
   reminders: Reminder[]
   exdates: string[]
 }
@@ -129,6 +131,7 @@ const emptyForm = (date: Date): FormState => {
     allDay: false,
     repeat: { freq: 'none', interval: 1, weekdays: [], monthDays: [] },
     visibility: 3,
+    attendees: [],
     reminders: [],
     exdates: [],
   }
@@ -136,8 +139,10 @@ const emptyForm = (date: Date): FormState => {
 
 export default function CalendarPage() {
   const { t } = useTranslation()
+  const me = useAuth((s) => s.user)
   const [cursor, setCursor] = useState(() => startOfDay(new Date()))
   const [events, setEvents] = useState<CalendarEvent[]>([])
+  const [teamMembers, setTeamMembers] = useState<Member[]>([])
   const [selected, setSelected] = useState<Date>(() => startOfDay(new Date()))
   const [editing, setEditing] = useState<FormState | null>(null)
   const [busy, setBusy] = useState(false)
@@ -161,6 +166,10 @@ export default function CalendarPage() {
 
   useEffect(() => {
     void load()
+    void api
+      .get<Member[]>('/api/v1/team/members')
+      .then(setTeamMembers)
+      .catch(() => setTeamMembers([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range])
 
@@ -215,6 +224,7 @@ export default function CalendarPage() {
       allDay: ev.allDay,
       repeat: parseRRule(ev.rrule),
       visibility: ev.visibility,
+      attendees: (ev.attendees ?? []).map((a) => a.id).filter(Boolean),
       reminders: ev.reminders ?? [],
       exdates: ev.exdates ?? [],
     })
@@ -234,6 +244,7 @@ export default function CalendarPage() {
         allDay: editing.allDay,
         rrule: buildRRule(editing.repeat),
         visibility: editing.visibility,
+        attendees: editing.attendees,
         reminders: editing.reminders,
         exdates: editing.exdates,
       }
@@ -262,6 +273,14 @@ export default function CalendarPage() {
   }
 
   const weekdays = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+
+  // evAttendeeStatus shows a stored PARTSTAT next to an invited member's name.
+  const evAttendeeStatus = (f: FormState, memberId: string): string => {
+    const ev = events.find((x) => x.id === f.id)
+    const a = (ev?.attendees ?? []).find((x) => x.id === memberId)
+    if (!a || a.status === 'NEEDS-ACTION') return ''
+    return a.status === 'ACCEPTED' ? '✓' : '✕'
+  }
 
   const toggleReminder = (r: Reminder) => {
     if (!editing) return
@@ -442,6 +461,17 @@ export default function CalendarPage() {
                   </span>
                 )}
               </div>
+              {ev.attendees && ev.attendees.length > 0 && (
+                <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-[var(--app-muted)]">
+                  <Users size={11} className="shrink-0" />
+                  {ev.attendees.slice(0, 2).map((a) => (
+                    <span key={a.id || a.email} className="truncate">
+                      {a.name || a.email}
+                    </span>
+                  ))}
+                  {ev.attendees.length > 2 && <span>+{ev.attendees.length - 2}</span>}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -494,6 +524,39 @@ export default function CalendarPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('calendar.inviteTitle')}</label>
+                <div className="space-y-1 rounded-lg border border-[var(--app-border)] p-2">
+                  {teamMembers
+                    .filter((m) => m.id !== me?.id)
+                    .map((m) => {
+                      const on = editing.attendees.includes(m.id)
+                      return (
+                        <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={on}
+                            onChange={(e) =>
+                              setEditing({
+                                ...editing,
+                                attendees: e.target.checked
+                                  ? [...editing.attendees, m.id]
+                                  : editing.attendees.filter((x) => x !== m.id),
+                              })
+                            }
+                          />
+                          <span className="truncate">{m.name}</span>
+                          {evAttendeeStatus(editing, m.id) && (
+                            <span className="ml-auto text-[10px] text-[var(--app-muted)]">{evAttendeeStatus(editing, m.id)}</span>
+                          )}
+                        </label>
+                      )
+                    })}
+                  {teamMembers.length <= 1 && <div className="text-xs text-[var(--app-muted)]">{t('todos.shareHint')}</div>}
+                </div>
+                <p className="mt-1.5 text-[11px] text-[var(--app-muted)]">{t('calendar.inviteHint')}</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
