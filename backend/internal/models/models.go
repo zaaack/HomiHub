@@ -80,6 +80,7 @@ type Calendar struct {
 	DisplayName string    `gorm:"size:255" json:"displayName"`
 	Description string    `gorm:"size:2000" json:"description"`
 	Color       string    `gorm:"size:32" json:"color"`
+	Icon        string    `gorm:"size:64" json:"icon"`
 	Components  string    `gorm:"size:128" json:"components"` // "VEVENT,VTODO,VJOURNAL" etc.
 	OwnerID     string    `gorm:"size:36" json:"ownerId"`
 	CreatedAt   time.Time `json:"createdAt"`

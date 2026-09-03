@@ -31,6 +31,19 @@ func main() {
 		}
 	}()
 
+	// Optional HTTPS listener (LAN CalDAV clients such as tasks.org require
+	// HTTPS; this lets them connect directly instead of via an external
+	// reverse proxy that may drop WebDAV write methods).
+	if cfg.TLSCert != "" && cfg.TLSKey != "" {
+		tlsSrv := &http.Server{Addr: ":" + cfg.TLSPort, Handler: r}
+		go func() {
+			log.Printf("HomiHub TLS listening on :%s", cfg.TLSPort)
+			if err := tlsSrv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("tls server error: %v", err)
+			}
+		}()
+	}
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

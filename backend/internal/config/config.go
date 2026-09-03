@@ -14,6 +14,9 @@ type Config struct {
 	DataDir    string
 	StorageDir string
 	CalendarTZ string
+	TLSCert    string
+	TLSKey     string
+	TLSPort    string
 }
 
 func Load() *Config {
@@ -31,6 +34,9 @@ func Load() *Config {
 		DataDir:    dataDir,
 		StorageDir: storageDir,
 		CalendarTZ: getenv("CALENDAR_TZ", "UTC"),
+		TLSCert:    getenv("HOMIHUB_TLS_CERT", ""),
+		TLSKey:     getenv("HOMIHUB_TLS_KEY", ""),
+		TLSPort:    getenv("HOMIHUB_TLS_PORT", "8443"),
 	}
 }
 

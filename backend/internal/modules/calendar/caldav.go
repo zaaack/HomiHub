@@ -159,6 +159,7 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 	}
 	selfName := "我的"
 	selfDesc := "我的私人日历"
+	selfColor, selfIcon := "", ""
 	if o, ok := overrides[calSelf]; ok {
 		if o.DisplayName != "" {
 			selfName = o.DisplayName
@@ -166,9 +167,11 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 		if o.Description != "" {
 			selfDesc = o.Description
 		}
+		selfColor, selfIcon = o.Color, o.Icon
 	}
 	teamName := s.Team.Name
 	teamDesc := s.Team.Name + " 的共享日历"
+	teamColor, teamIcon := "", ""
 	if o, ok := overrides[calTeam]; ok {
 		if o.DisplayName != "" {
 			teamName = o.DisplayName
@@ -176,18 +179,23 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 		if o.Description != "" {
 			teamDesc = o.Description
 		}
+		teamColor, teamIcon = o.Color, o.Icon
 	}
 	cals := []caldav.Calendar{
 		{
 			Path:                  calendarPath(s.Email, calSelf),
 			Name:                  selfName,
 			Description:           selfDesc,
+			Color:                 selfColor,
+			Icon:                  selfIcon,
 			SupportedComponentSet: allComps,
 		},
 		{
 			Path:                  calendarPath(s.Email, calTeam),
 			Name:                  teamName,
 			Description:           teamDesc,
+			Color:                 teamColor,
+			Icon:                  teamIcon,
 			SupportedComponentSet: allComps,
 		},
 	}
@@ -207,6 +215,8 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 			Path:                  calendarPath(s.Email, c.Name),
 			Name:                  c.DisplayName,
 			Description:           c.Description,
+			Color:                 c.Color,
+			Icon:                  c.Icon,
 			SupportedComponentSet: comps,
 		})
 	}
@@ -222,6 +232,7 @@ func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calenda
 			name, desc = s.Team.Name, s.Team.Name+" 的共享日历"
 		}
 		var ov models.Calendar
+		color, icon := "", ""
 		if err := middlewareScopedDB(b.app.DB, s.Team.ID).Where("name = ?", cal).First(&ov).Error; err == nil {
 			if ov.DisplayName != "" {
 				name = ov.DisplayName
@@ -229,8 +240,9 @@ func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calenda
 			if ov.Description != "" {
 				desc = ov.Description
 			}
+			color, icon = ov.Color, ov.Icon
 		}
-		return &caldav.Calendar{Path: p, Name: name, Description: desc, SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}}, nil
+		return &caldav.Calendar{Path: p, Name: name, Description: desc, Color: color, Icon: icon, SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}}, nil
 	}
 	var c models.Calendar
 	if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Where("name = ?", cal).First(&c).Error; err != nil {
@@ -244,6 +256,8 @@ func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calenda
 		Path:                  p,
 		Name:                  c.DisplayName,
 		Description:           c.Description,
+		Color:                 c.Color,
+		Icon:                  c.Icon,
 		SupportedComponentSet: comps,
 	}, nil
 }
@@ -282,6 +296,8 @@ func (b *davBackend) SetCalendar(ctx context.Context, p string, cal *caldav.Cale
 		}
 		c.DisplayName = cal.Name
 		c.Description = cal.Description
+		c.Color = cal.Color
+		c.Icon = cal.Icon
 		if components != "" {
 			c.Components = components
 		}
@@ -294,6 +310,8 @@ func (b *davBackend) SetCalendar(ctx context.Context, p string, cal *caldav.Cale
 	}
 	c.DisplayName = cal.Name
 	c.Description = cal.Description
+	c.Color = cal.Color
+	c.Icon = cal.Icon
 	if components != "" {
 		c.Components = components
 	}
