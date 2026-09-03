@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/homihub/go-xnet-webdav"
+	"github.com/z/go-webdavp"
 	"gorm.io/gorm"
 
 	"homihub/backend/internal/middleware"
