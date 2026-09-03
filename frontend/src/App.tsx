@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import CalendarPage from './pages/CalendarPage'
 import TodosPage from './pages/TodosPage'
+import NotesPage from './pages/NotesPage'
 import FilesPage from './pages/FilesPage'
 import TeamPage from './pages/TeamPage'
 import SettingsPage from './pages/SettingsPage'
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
           { path: '/', element: <CalendarPage /> },
           { path: '/calendar', element: <CalendarPage /> },
           { path: '/todos', element: <TodosPage /> },
+          { path: '/notes', element: <NotesPage /> },
           { path: '/files', element: <FilesPage /> },
           { path: '/team', element: <TeamPage /> },
           { path: '/settings', element: <SettingsPage /> },

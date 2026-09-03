@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { CalendarDays, CheckSquare, FolderOpen, Users, LogOut, Menu, X, Globe, Settings, PanelLeftClose, PanelLeft, ChevronDown, User, Shield, UserCog } from 'lucide-react'
+import { CalendarDays, CheckSquare, FolderOpen, Users, LogOut, Menu, X, Globe, Settings, PanelLeftClose, PanelLeft, ChevronDown, User, Shield, UserCog, NotebookPen } from 'lucide-react'
 import { useAuth } from '../store/auth'
 import { setLang } from '../i18n'
 import { PopConfirm } from './ui/pop-confirm'
@@ -9,6 +9,7 @@ import { PopConfirm } from './ui/pop-confirm'
 const NAV: { to: string; labelKey: string; icon: typeof CalendarDays; parentOnly?: boolean }[] = [
   { to: '/calendar', labelKey: 'nav.calendar', icon: CalendarDays },
   { to: '/todos', labelKey: 'nav.todos', icon: CheckSquare },
+  { to: '/notes', labelKey: 'nav.notes', icon: NotebookPen },
   { to: '/files', labelKey: 'nav.files', icon: FolderOpen },
   { to: '/team', labelKey: 'nav.team', icon: Users },
 ]

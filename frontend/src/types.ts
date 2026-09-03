@@ -129,6 +129,34 @@ export interface TodoList {
   members: TodoListMember[]
 }
 
+// A note stored as a VJOURNAL calendar object.
+export interface Note {
+  id: string
+  uid: string
+  teamId: string
+  userId: string
+  calendar: string
+  title: string
+  body: string
+  tags: string
+  createdAt: string
+  updatedAt: string
+}
+
+// A note list (VJOURNAL-only calendar): "self", "team" or a custom list.
+export interface NoteList {
+  id: string
+  kind: 'personal' | 'team' | 'custom'
+  name: string
+  color: string
+  icon: string
+  ownerId: string
+  access: string
+  canEdit: boolean
+  writable: boolean
+  members: TodoListMember[]
+}
+
 export interface FileItem {
   id: string
   teamId: string
