@@ -185,7 +185,21 @@
     "parentOnly": "Only admins can configure",
     "corsTitle": "Cross-Origin (CORS)",
     "corsHint": "Allow these origins to access calendar subscriptions & WebDAV from the browser. Separate with commas, or use * to allow all",
-    "saved": "Saved"
+    "saved": "Saved",
+    "appPasswords": "App Passwords",
+    "appPasswordsHint": "Use these passwords for CalDAV, WebDAV, and iCal subscriptions. They grant full access to your calendar and files.",
+    "createAppPassword": "Create app password",
+    "appName": "App name",
+    "appNamePlaceholder": "e.g. Calendar App",
+    "appPasswordCreated": "Save this password now. It won't be shown again.",
+    "appPassword": "App password",
+    "revoke": "Revoke",
+    "sessions": "Sessions",
+    "sessionsHint": "Manage your login sessions. Revoking a session will force it to sign out.",
+    "currentSession": "Current session",
+    "revokeSession": "Revoke session",
+    "noSessions": "No active sessions",
+    "noAppPasswords": "No app passwords"
   },
   "common": {
     "loading": "Loading…",
@@ -219,6 +233,7 @@
     "calendar_token_invalid": "Invalid calendar token",
     "calendar_auth_required": "Authentication required",
     "edit_own_only": "You can only edit your own items",
-    "delete_own_only": "You can only delete your own items"
+    "delete_own_only": "You can only delete your own items",
+    "cannot_revoke_current_token": "Cannot revoke current session"
   }
 }

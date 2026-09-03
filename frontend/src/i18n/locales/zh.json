@@ -185,7 +185,21 @@
     "parentOnly": "仅管理员可配置",
     "corsTitle": "跨域访问（CORS）",
     "corsHint": "允许以下域名在浏览器中访问日历订阅与 WebDAV 链接，多个域名用逗号分隔，或填 * 允许所有来源",
-    "saved": "已保存"
+    "saved": "已保存",
+    "appPasswords": "应用密码",
+    "appPasswordsHint": "用于 CalDAV、WebDAV 和 iCal 订阅，可访问日历和文件",
+    "createAppPassword": "创建应用密码",
+    "appName": "应用名称",
+    "appNamePlaceholder": "例如：日历应用",
+    "appPasswordCreated": "请保存此密码，不会再次显示",
+    "appPassword": "应用密码",
+    "revoke": "撤销",
+    "sessions": "登录会话",
+    "sessionsHint": "管理登录会话，撤销会强制下线",
+    "currentSession": "当前会话",
+    "revokeSession": "撤销会话",
+    "noSessions": "无活跃会话",
+    "noAppPasswords": "无应用密码"
   },
   "common": {
     "loading": "加载中…",
@@ -219,6 +233,7 @@
     "calendar_token_invalid": "Calendar Token 无效",
     "calendar_auth_required": "需要认证",
     "edit_own_only": "只能编辑自己的资源",
-    "delete_own_only": "只能删除自己的资源"
+    "delete_own_only": "只能删除自己的资源",
+    "cannot_revoke_current_token": "不能撤销当前会话"
   }
 }
