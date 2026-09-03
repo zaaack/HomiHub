@@ -153,9 +153,10 @@ type xfile struct {
 
 	info xfileInfo
 
-	// read mode: seekable content (spooled to temp file)
+	// read mode: seekable content (spooled to temp file, or direct from store)
 	rs    io.ReadSeeker
 	spool *os.File
+	rcloser io.Closer
 
 	// write mode
 	wbuf    *os.File
@@ -645,11 +646,32 @@ func (w *filesWebDAV) openDir(ctx context.Context, scope string, segs []string, 
 	return f, nil
 }
 
-// openRead spools file content to a temp file for seekable reads.
+// openRead opens file content for seekable reads. When the underlying store
+// already returns a seekable reader it is used directly; otherwise the content
+// is spooled to a temp file (no extra copy for Local).
 func (w *filesWebDAV) openRead(ctx context.Context, scope string, segs []string, file *models.File, name string) (*xfile, error) {
 	rc, err := w.h.st.Open(ctx, contentKey(file.TeamID, file.Scope, file.ID))
 	if err != nil {
 		return nil, err
+	}
+	ctype := file.MimeType
+	if ctype == "" {
+		ctype = mime.TypeByExtension(path.Ext(file.Name))
+	}
+	f := &xfile{
+		w: w, ctx: ctx, name: name, scope: scope, segs: segs,
+		fileID: file.ID, teamID: file.TeamID, ownerID: file.OwnerID,
+		folderID: file.FolderID,
+		info: xfileInfo{
+			name: segs[len(segs)-1], size: file.Size, mode: 0o644,
+			modTime: file.UpdatedAt, etag: fileEtag(file.ID, file.UpdatedAt.String(), file.Size),
+			ctype: ctype,
+		},
+	}
+	if rs, ok := rc.(io.ReadSeeker); ok {
+		f.rs = rs
+		f.rcloser = rc
+		return f, nil
 	}
 	defer rc.Close()
 	tmp, err := os.CreateTemp("", "homihub-dav-*")
@@ -666,21 +688,8 @@ func (w *filesWebDAV) openRead(ctx context.Context, scope string, segs []string,
 		os.Remove(tmp.Name())
 		return nil, err
 	}
-	ctype := file.MimeType
-	if ctype == "" {
-		ctype = mime.TypeByExtension(path.Ext(file.Name))
-	}
-	f := &xfile{
-		w: w, ctx: ctx, name: name, scope: scope, segs: segs,
-		fileID: file.ID, teamID: file.TeamID, ownerID: file.OwnerID,
-		folderID: file.FolderID,
-		rs:       tmp, spool: tmp,
-		info: xfileInfo{
-			name: segs[len(segs)-1], size: file.Size, mode: 0o644,
-			modTime: file.UpdatedAt, etag: fileEtag(file.ID, file.UpdatedAt.String(), file.Size),
-			ctype: ctype,
-		},
-	}
+	f.rs = tmp
+	f.spool = tmp
 	return f, nil
 }
 
@@ -795,6 +804,9 @@ func (f *xfile) Close() error {
 	if f.spool != nil {
 		f.spool.Close()
 		os.Remove(f.spool.Name())
+	}
+	if f.rcloser != nil {
+		f.rcloser.Close()
 	}
 	if f.wbuf != nil {
 		f.wbuf.Close()
