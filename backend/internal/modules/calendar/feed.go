@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"homihub/backend/internal/httpx"
+	"homihub/backend/internal/middleware"
 	"homihub/backend/internal/models"
 )
 
@@ -63,14 +64,25 @@ func (h *Handler) feedAsTeam(c *gin.Context) {
 	c.Data(http.StatusOK, "text/calendar; charset=utf-8", serialize(cal))
 }
 
-func (h *Handler) feedAsMember(c *gin.Context, email, calendarToken string) {
+func (h *Handler) feedAsMember(c *gin.Context, email, pass string) {
 	var fam models.Team
-	if err := h.app.DB.Where("calendar_token = ?", calendarToken).First(&fam).Error; err != nil {
-		httpx.UnauthorizedT(c, "calendar_token_invalid")
-		return
-	}
 	var user models.User
-	if err := h.app.DB.Where("email = ?", email).First(&user).Error; err != nil {
+	authed := false
+	// 1. family calendar_token
+	if h.app.DB.Where("calendar_token = ?", pass).First(&fam).Error == nil {
+		authed = true
+	}
+	// 2. app_password (personal token)
+	if !authed && h.app.DB.Where("email = ?", email).First(&user).Error == nil {
+		var tok models.Token
+		if h.app.DB.Where("token_hash = ? AND kind = ? AND subject_id = ? AND revoked_at IS NULL",
+			middleware.HashToken(pass), "app_password", user.ID).First(&tok).Error == nil {
+			if err := h.app.DB.Where("id = ?", user.TeamID).First(&fam).Error; err == nil {
+				authed = true
+			}
+		}
+	}
+	if !authed {
 		httpx.UnauthorizedT(c, "calendar_token_invalid")
 		return
 	}

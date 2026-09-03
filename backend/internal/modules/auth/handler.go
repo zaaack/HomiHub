@@ -37,6 +37,11 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 	g.POST("/auth/switch-team", auth, h.switchTeam)
 	g.PATCH("/auth/profile", auth, h.updateProfile)
 	g.POST("/auth/logout", auth, h.logout)
+	g.GET("/auth/tokens", auth, h.listTokens)
+	g.DELETE("/auth/tokens/:id", auth, h.revokeToken)
+	g.POST("/auth/app-passwords", auth, h.createAppPassword)
+	g.GET("/auth/app-passwords", auth, h.listAppPasswords)
+	g.DELETE("/auth/app-passwords/:id", auth, h.revokeAppPassword)
 }
 
 type loginResp struct {
@@ -265,5 +270,114 @@ func (h *Handler) logout(c *gin.Context) {
 	h.app.DB.Model(&models.Token{}).
 		Where("token_hash = ?", middleware.HashToken(raw)).
 		Update("revoked_at", time.Now())
+	httpx.OK(c, gin.H{"ok": true})
+}
+
+// --- Token management ---
+
+type tokenEntry struct {
+	ID         string     `json:"id"`
+	Kind       string     `json:"kind"`
+	Name       string     `json:"name"`
+	IP         string     `json:"ip"`
+	UserAgent  string     `json:"userAgent"`
+	ExpiresAt  *time.Time `json:"expiresAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
+	CreatedAt  time.Time  `json:"createdAt"`
+}
+
+func (h *Handler) listTokens(c *gin.Context) {
+	cl := middleware.ClaimsOf(c)
+	var tokens []models.Token
+	h.app.DB.Where("subject_id = ? AND kind = ? AND revoked_at IS NULL", cl.UserID, "user").
+		Order("created_at DESC").Find(&tokens)
+	out := make([]tokenEntry, 0, len(tokens))
+	for _, t := range tokens {
+		out = append(out, tokenEntry{
+			ID: t.ID, Kind: t.Kind, Name: t.Name, IP: t.IP,
+			UserAgent: t.UserAgent, ExpiresAt: t.ExpiresAt,
+			LastUsedAt: t.LastUsedAt, CreatedAt: t.CreatedAt,
+		})
+	}
+	httpx.OK(c, out)
+}
+
+func (h *Handler) revokeToken(c *gin.Context) {
+	cl := middleware.ClaimsOf(c)
+	raw := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+	tokenID := c.Param("id")
+	var tok models.Token
+	if err := h.app.DB.Where("id = ? AND subject_id = ? AND revoked_at IS NULL", tokenID, cl.UserID).First(&tok).Error; err != nil {
+		httpx.ErrT(c, 404, "not_found")
+		return
+	}
+	if tok.TokenHash == middleware.HashToken(raw) {
+		httpx.ErrT(c, 400, "cannot_revoke_current_token")
+		return
+	}
+	now := time.Now()
+	h.app.DB.Model(&tok).Update("revoked_at", now)
+	httpx.OK(c, gin.H{"ok": true})
+}
+
+// --- App Passwords ---
+
+func (h *Handler) createAppPassword(c *gin.Context) {
+	cl := middleware.ClaimsOf(c)
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !httpx.Bind(c, &in) {
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" {
+		in.Name = "App Password"
+	}
+	raw := middleware.RandomToken(32)
+	tok := models.Token{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		TeamID:    cl.TeamID,
+		Kind:      "app_password",
+		SubjectID: cl.UserID,
+		Name:      in.Name,
+		TokenHash: middleware.HashToken(raw),
+		IP:        c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+	}
+	if err := h.app.DB.Create(&tok).Error; err != nil {
+		httpx.ErrT(c, 500, "internal_error")
+		return
+	}
+	httpx.OK(c, gin.H{"id": tok.ID, "name": tok.Name, "token": raw, "createdAt": tok.CreatedAt})
+}
+
+func (h *Handler) listAppPasswords(c *gin.Context) {
+	cl := middleware.ClaimsOf(c)
+	var tokens []models.Token
+	h.app.DB.Where("subject_id = ? AND kind = ? AND revoked_at IS NULL", cl.UserID, "app_password").
+		Order("created_at DESC").Find(&tokens)
+	out := make([]tokenEntry, 0, len(tokens))
+	for _, t := range tokens {
+		out = append(out, tokenEntry{
+			ID: t.ID, Kind: t.Kind, Name: t.Name, IP: t.IP,
+			UserAgent: t.UserAgent, ExpiresAt: t.ExpiresAt,
+			LastUsedAt: t.LastUsedAt, CreatedAt: t.CreatedAt,
+		})
+	}
+	httpx.OK(c, out)
+}
+
+func (h *Handler) revokeAppPassword(c *gin.Context) {
+	cl := middleware.ClaimsOf(c)
+	tokenID := c.Param("id")
+	var tok models.Token
+	if err := h.app.DB.Where("id = ? AND subject_id = ? AND kind = ? AND revoked_at IS NULL",
+		tokenID, cl.UserID, "app_password").First(&tok).Error; err != nil {
+		httpx.ErrT(c, 404, "not_found")
+		return
+	}
+	now := time.Now()
+	h.app.DB.Model(&tok).Update("revoked_at", now)
 	httpx.OK(c, gin.H{"ok": true})
 }

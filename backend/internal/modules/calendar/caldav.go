@@ -1348,7 +1348,7 @@ func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
 	return err
 }
 
-// davAuth: Basic Auth = member email + (family calendar_token OR member password).
+// davAuth: Basic Auth = member email + (family calendar_token | app_password | member password).
 func (h *Handler) davAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		email, pass, ok := c.Request.BasicAuth()
@@ -1360,14 +1360,30 @@ func (h *Handler) davAuth() gin.HandlerFunc {
 		}
 		pass, err := url.QueryUnescape(pass)
 		if err != nil {
+			c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
 			httpx.UnauthorizedT(c, "calendar_auth_required")
 			c.Abort()
 			return
 		}
 		var fam models.Team
-		tokenOK := h.app.DB.Where("calendar_token = ?", pass).First(&fam).Error == nil
-		if !tokenOK {
-			var u models.User
+		var u models.User
+		authed := false
+		// 1. family calendar_token
+		if h.app.DB.Where("calendar_token = ?", pass).First(&fam).Error == nil {
+			authed = true
+		}
+		// 2. app_password (personal token)
+		if !authed && h.app.DB.Where("email = ?", email).First(&u).Error == nil {
+			var tok models.Token
+			if h.app.DB.Where("token_hash = ? AND kind = ? AND subject_id = ? AND revoked_at IS NULL",
+				middleware.HashToken(pass), "app_password", u.ID).First(&tok).Error == nil {
+				if err := h.app.DB.Where("id = ?", u.TeamID).First(&fam).Error; err == nil {
+					authed = true
+				}
+			}
+		}
+		// 3. user password (fallback)
+		if !authed {
 			if err := h.app.DB.Where("email = ?", email).First(&u).Error; err != nil ||
 				bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(pass)) != nil {
 				c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
@@ -1381,6 +1397,13 @@ func (h *Handler) davAuth() gin.HandlerFunc {
 				c.Abort()
 				return
 			}
+			authed = true
+		}
+		if !authed {
+			c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
+			httpx.UnauthorizedT(c, "calendar_auth_required")
+			c.Abort()
+			return
 		}
 		var user models.User
 		if err := h.app.DB.Where("email = ?", email).First(&user).Error; err != nil {
