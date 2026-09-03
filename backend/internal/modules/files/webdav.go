@@ -286,7 +286,7 @@ func (w *filesWebDAV) OpenFile(ctx context.Context, name string, flag int, perm 
 		return nil, err
 	}
 	var file models.File
-	qf := db.Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
+	qf := db.Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL AND attachment_of = ''", scope, folderID, leaf)
 	if scope == models.ScopePersonal {
 		qf = qf.Where("owner_id = ?", s.User.ID)
 	}
@@ -332,7 +332,7 @@ func (w *filesWebDAV) RemoveAll(ctx context.Context, name string) error {
 		return err
 	}
 	// soft-delete a file if present
-	qf := db.Model(&models.File{}).Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
+	qf := db.Model(&models.File{}).Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL AND attachment_of = ''", scope, folderID, leaf)
 	if scope == models.ScopePersonal {
 		qf = qf.Where("owner_id = ?", s.User.ID)
 	}
@@ -381,7 +381,7 @@ func (w *filesWebDAV) removeFolderTree(ctx context.Context, scope, folderID, own
 	if err != nil {
 		return err
 	}
-	if err := db.Model(&models.File{}).Where("scope = ? AND folder_id = ? AND deleted_at IS NULL", scope, folderID).
+	if err := db.Model(&models.File{}).Where("scope = ? AND folder_id = ? AND deleted_at IS NULL AND attachment_of = ''", scope, folderID).
 		Update("deleted_at", &now).Error; err != nil {
 		return err
 	}
@@ -433,7 +433,7 @@ func (w *filesWebDAV) Rename(ctx context.Context, oldName, newName string) error
 
 	// file?
 	var file models.File
-	qf := db.Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", oScope, oParent, oLeaf)
+	qf := db.Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL AND attachment_of = ''", oScope, oParent, oLeaf)
 	if oScope == models.ScopePersonal {
 		qf = qf.Where("owner_id = ?", s.User.ID)
 	}
@@ -511,7 +511,7 @@ func (w *filesWebDAV) Stat(ctx context.Context, name string) (os.FileInfo, error
 		return nil, err
 	}
 	var file models.File
-	qf := db.Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
+	qf := db.Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL AND attachment_of = ''", scope, folderID, leaf)
 	if scope == models.ScopePersonal {
 		qf = qf.Where("owner_id = ?", s.User.ID)
 	}
@@ -554,7 +554,7 @@ func (w *filesWebDAV) resourceExists(ctx context.Context, scope, folderID, leaf,
 	if err != nil {
 		return false, err
 	}
-	q = db.Model(&models.File{}).Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL", scope, folderID, leaf)
+	q = db.Model(&models.File{}).Where("scope = ? AND folder_id = ? AND name = ? AND deleted_at IS NULL AND attachment_of = ''", scope, folderID, leaf)
 	if scope == models.ScopePersonal {
 		q = q.Where("owner_id = ?", ownerID)
 	}
@@ -606,7 +606,7 @@ func (w *filesWebDAV) openScopeRoot(ctx context.Context, scope, name string) (*x
 	if err != nil {
 		return nil, err
 	}
-	qf := db.Where("scope = ? AND folder_id = '' AND deleted_at IS NULL", scope)
+	qf := db.Where("scope = ? AND folder_id = '' AND deleted_at IS NULL AND attachment_of = ''", scope)
 	if scope == models.ScopePersonal {
 		qf = qf.Where("owner_id = ?", s.User.ID)
 	}
@@ -662,7 +662,7 @@ func (w *filesWebDAV) openDir(ctx context.Context, scope string, segs []string, 
 	if err != nil {
 		return nil, err
 	}
-	qf := db.Where("scope = ? AND folder_id = ? AND deleted_at IS NULL", scope, folder.ID)
+	qf := db.Where("scope = ? AND folder_id = ? AND deleted_at IS NULL AND attachment_of = ''", scope, folder.ID)
 	if scope == models.ScopePersonal {
 		qf = qf.Where("owner_id = ?", s.User.ID)
 	}

@@ -44,6 +44,7 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 	g.DELETE("/files/folders/:id", auth, h.deleteFolder)
 	g.POST("/attachments", auth, h.createAttachment)
 	g.GET("/attachments", auth, h.listAttachments)
+	g.GET("/attachments/manage", auth, h.listManage)
 	g.DELETE("/attachments/:id", auth, h.deleteAttachment)
 }
 

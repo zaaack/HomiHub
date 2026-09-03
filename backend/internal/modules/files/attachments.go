@@ -158,6 +158,120 @@ func (h *Handler) listAttachments(c *gin.Context) {
 	httpx.OK(c, attachments.ViewsForItem(h.app.DB, cl.TeamID, kind, itemID))
 }
 
+// listManage lists every attachment the caller may view, annotated with the
+// owning item so the UI can show which event / note / todo it belongs to
+// (reverse lookup). Filters: kind (event|note|todo), completed (true|false)
+// and a created_at range (from/to, RFC3339).
+func (h *Handler) listManage(c *gin.Context) {
+	cl := middleware.ClaimsOf(c)
+	kind := c.Query("kind")
+	if kind != "" && kind != "event" && kind != "note" && kind != "todo" {
+		httpx.BadRequestT(c, "bad_request")
+		return
+	}
+	sc := func() *gorm.DB { return middleware.ScopedDB(h.app.DB, cl.TeamID) }
+	q := sc().Model(&models.Attachment{})
+	if kind != "" {
+		q = q.Where("kind = ?", kind)
+	}
+	if from := c.Query("from"); from != "" {
+		q = q.Where("created_at >= ?", from)
+	}
+	if to := c.Query("to"); to != "" {
+		q = q.Where("created_at <= ?", to)
+	}
+	var atts []models.Attachment
+	if err := q.Order("created_at desc").Find(&atts).Error; err != nil {
+		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
+		return
+	}
+	if len(atts) == 0 {
+		httpx.OK(c, []models.AttachmentManageView{})
+		return
+	}
+	completedFilter := ""
+	if v := c.Query("completed"); v == "true" || v == "false" {
+		completedFilter = v
+	}
+	now := time.Now()
+	out := make([]models.AttachmentManageView, 0, len(atts))
+	for _, a := range atts {
+		item := attachmentManageItem(middleware.DB(c), cl, a, now)
+		if item == nil {
+			continue // item gone or caller cannot see it
+		}
+		if completedFilter == "true" && !item.Completed {
+			continue
+		}
+		if completedFilter == "false" && item.Completed {
+			continue
+		}
+		out = append(out, models.AttachmentManageView{
+			AttachmentView: attachmentView(h.app.DB, cl.TeamID, a),
+			Item:           item,
+		})
+	}
+	httpx.OK(c, out)
+}
+
+// attachmentManageItem resolves an attachment's owning item. It returns nil
+// when the item no longer exists or the caller may not view it. Visibility
+// reuses attachmentItemAccess so the manage list never widens access.
+func attachmentManageItem(db *gorm.DB, cl *middleware.Claims, a models.Attachment, now time.Time) *models.AttachmentItemInfo {
+	visible, _ := attachmentItemAccess(db, cl, a.Kind, a.ItemID)
+	if !visible {
+		return nil
+	}
+	switch a.Kind {
+	case "event", "note":
+		var ev models.CalendarEvent
+		if err := db.First(&ev, "id = ?", a.ItemID).Error; err != nil {
+			return nil
+		}
+		st, en := ev.StartsAt, ev.EndsAt
+		return &models.AttachmentItemInfo{
+			ID:        ev.ID,
+			Kind:      a.Kind,
+			Title:     ev.Title,
+			Calendar:  ev.Calendar,
+			Completed: !en.IsZero() && en.Before(now),
+			StartsAt:  &st,
+			EndsAt:    &en,
+		}
+	case "todo":
+		var td models.Todo
+		if err := db.First(&td, "id = ?", a.ItemID).Error; err != nil {
+			return nil
+		}
+		due := td.DueAt
+		return &models.AttachmentItemInfo{
+			ID:        td.ID,
+			Kind:      a.Kind,
+			Title:     td.Title,
+			Calendar:  td.Calendar,
+			Completed: td.Completed,
+			DueAt:     due,
+		}
+	}
+	return nil
+}
+
+// attachmentView builds the file-backed view (name/type/size/url) for an
+// attachment, or an empty view if its file is gone.
+func attachmentView(base *gorm.DB, teamID string, a models.Attachment) models.AttachmentView {
+	v := models.AttachmentView{Attachment: a}
+	var f models.File
+	sc := func() *gorm.DB { return middleware.ScopedDB(base, teamID) }
+	if err := sc().First(&f, "id = ?", a.FileID).Error; err != nil {
+		return v
+	}
+	v.Name = f.Name
+	v.MimeType = f.MimeType
+	v.Size = f.Size
+	v.URL = "/api/v1/files/" + f.ID + "/content"
+	return v
+}
+
 func (h *Handler) deleteAttachment(c *gin.Context) {
 	cl := middleware.ClaimsOf(c)
 	var att models.Attachment
@@ -165,9 +279,10 @@ func (h *Handler) deleteAttachment(c *gin.Context) {
 		httpx.NotFoundT(c, "attachment_not_found")
 		return
 	}
-	_, writable := attachmentItemAccess(middleware.DB(c), cl, att.Kind, att.ItemID)
-	if !writable {
-		httpx.NotFoundT(c, "item_not_found")
+	// Only the uploader (or an admin) may delete an attachment; item access
+	// alone is not enough.
+	if att.UserID != cl.UserID && cl.Role != middleware.RoleParent {
+		httpx.ForbiddenT(c, "forbidden")
 		return
 	}
 	if err := attachments.DeleteOne(h.app.DB, cl.TeamID, att); err != nil {

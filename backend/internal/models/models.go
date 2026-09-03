@@ -346,8 +346,9 @@ type File struct {
 	FolderID  string     `gorm:"size:36;default:'';index" json:"folderId"`
 	DeadProps string     `gorm:"type:text" json:"-"` // WebDAV dead properties (JSON)
 	// AttachmentOf links a file to a calendar/todo item when set ("" = a plain
-	// file). Attachment files stay visible over WebDAV but are hidden from the
-	// Files page root listing; see models.Attachment.
+	// file). Attachment files are hidden from the Files page listing and from
+	// the WebDAV mount; they are only reachable via their content URL. See
+	// models.Attachment.
 	AttachmentOf string     `gorm:"size:36;default:'';index" json:"attachmentOf"`
 	DeletedAt    *time.Time `json:"deletedAt"`
 	CreatedAt    time.Time  `json:"createdAt"`
@@ -356,8 +357,8 @@ type File struct {
 
 // Attachment links an uploaded File to an event / todo / note item (Kind is
 // "event" | "todo" | "note" and ItemID is the row id). The content itself
-// lives in the File row so attachments are URL-accessible and show up on the
-// WebDAV mount of the team/personal directory.
+// lives in the File row so attachments are URL-accessible; they are hidden
+// from the Files page listing and the WebDAV mount.
 type Attachment struct {
 	ID         string    `gorm:"primaryKey;size:36" json:"id"`
 	TeamID     string    `gorm:"size:36;index:idx_att_item" json:"teamId"`
@@ -376,6 +377,26 @@ type AttachmentView struct {
 	MimeType string `json:"mimeType"`
 	Size     int64  `json:"size"`
 	URL      string `json:"url"`
+}
+
+// AttachmentItemInfo describes the owning event / todo / note for reverse
+// lookup, so a management UI can tell which item an attachment belongs to.
+type AttachmentItemInfo struct {
+	ID        string     `json:"id"`
+	Kind      string     `json:"kind"` // event | note | todo
+	Title     string     `json:"title"`
+	Calendar  string     `json:"calendar"`
+	Completed bool       `json:"completed"`
+	StartsAt  *time.Time `json:"startsAt,omitempty"`
+	EndsAt    *time.Time `json:"endsAt,omitempty"`
+	DueAt     *time.Time `json:"dueAt,omitempty"`
+}
+
+// AttachmentManageView is an AttachmentView with reverse-lookup info of the
+// item it belongs to.
+type AttachmentManageView struct {
+	AttachmentView
+	Item *AttachmentItemInfo `json:"item"`
 }
 
 type FileFolder struct {
