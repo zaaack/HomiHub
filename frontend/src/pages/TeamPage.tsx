@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Copy, Link2, RotateCw, Users, Check, Share2, KeyRound } from 'lucide-react'
+import { Copy, Link2, RotateCw, Users, Check, Share2, KeyRound, HardDrive } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../store/auth'
 import type { Invite, Member } from '../types'
@@ -77,7 +77,7 @@ export default function TeamPage() {
   }
 
   const inviteUrl = (link: string) => `${window.location.origin}/join?code=${encodeURIComponent(link)}`
-  const icsUrl = (token: string) => `${window.location.origin}/api/v1/calendar/feed.ics?token=${encodeURIComponent(token)}&scope=team`
+  const icsUrl = (token: string) => `${window.location.origin}/api/v1/calendar/feed.ics?token=${encodeURIComponent(token)}`
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -189,6 +189,36 @@ export default function TeamPage() {
             </div>
           )}
           {!calendarToken && <div className="text-sm text-[var(--app-muted)]">{t('team.resetTokenHint')}</div>}
+        </div>
+      </div>
+
+      {/* Team WebDAV */}
+      <div className="card p-4">
+        <div className="mb-3 flex items-center gap-2 text-base font-semibold">
+          <HardDrive size={18} />
+          {t('team.webdavTitle')}
+        </div>
+        <p className="mb-3 text-xs text-[var(--app-muted)]">{t('team.webdavHint')}</p>
+        <div className="space-y-2">
+          <div>
+            <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('team.webdavMountUrl')}</label>
+            <input className="input text-xs" readOnly value={`${window.location.origin}/dav/files/`} onFocus={(e) => e.target.select()} />
+          </div>
+          {calendarToken && (
+            <>
+              <div>
+                <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('team.webdavAccount')}</label>
+                <input className="input text-xs" readOnly value={`team:${team?.id}`} onFocus={(e) => e.target.select()} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('team.webdavPassword')}</label>
+                <input className="input text-xs" readOnly value={calendarToken} onFocus={(e) => e.target.select()} />
+              </div>
+            </>
+          )}
+        </div>
+        <div className="mt-3 rounded-lg bg-[var(--app-card-sub)] p-3 text-xs text-[var(--app-muted)]">
+          <p>{t('team.webdavNote')}</p>
         </div>
       </div>
     </div>

@@ -8,6 +8,9 @@ import TodosPage from './pages/TodosPage'
 import FilesPage from './pages/FilesPage'
 import TeamPage from './pages/TeamPage'
 import SettingsPage from './pages/SettingsPage'
+import ProfilePage from './pages/ProfilePage'
+import UserSettingsPage from './pages/UserSettingsPage'
+import SecurityPage from './pages/SecurityPage'
 import Join from './pages/Join'
 
 function RequireAuth() {
@@ -32,6 +35,9 @@ const router = createBrowserRouter([
           { path: '/files', element: <FilesPage /> },
           { path: '/team', element: <TeamPage /> },
           { path: '/settings', element: <SettingsPage /> },
+          { path: '/profile', element: <ProfilePage /> },
+          { path: '/user-settings', element: <UserSettingsPage /> },
+          { path: '/security', element: <SecurityPage /> },
         ],
       },
     ],

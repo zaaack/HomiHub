@@ -7,7 +7,10 @@
     "todos": "Todos",
     "files": "Files",
     "team": "Team",
-    "settings": "Settings"
+    "settings": "Settings",
+    "profile": "Profile",
+    "userSettings": "User Settings",
+    "security": "Security"
   },
   "auth": {
     "login": "Sign in",
@@ -18,6 +21,7 @@
     "teamName": "Team name",
     "teamNamePlaceholder": "e.g. My Home",
     "logout": "Sign out",
+    "logoutConfirm": "Are you sure you want to sign out?",
     "noAccount": "No account yet?",
     "hasAccount": "Already have an account?",
     "createTeam": "Create team & sign up",
@@ -28,6 +32,48 @@
     "child": "Member",
     "parent": "Admin",
     "role": "Role"
+  },
+  "profile": {
+    "title": "Profile",
+    "basicInfo": "Basic Info",
+    "saved": "Profile updated"
+  },
+  "security": {
+    "title": "Security",
+    "changePassword": "Change Password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "passwordSaved": "Password changed",
+    "sessions": "Active Sessions",
+    "sessionsHint": "Manage your login sessions. Revoking a session will force it to sign out.",
+    "currentSession": "Current session",
+    "revokeSession": "Revoke session",
+    "revokeSessionConfirm": "This will force the session to sign out. Continue?",
+    "noSessions": "No active sessions"
+  },
+  "userSettings": {
+    "title": "User Settings",
+    "webdavTitle": "WebDAV / CalDAV Sync",
+    "webdavHint": "One account & password for both: WebDAV mounts your files, CalDAV syncs your calendars (DAVx5, Apple Calendar, Outlook, etc.).",
+    "webdavMountUrl": "WebDAV Mount URL",
+    "webdavAccount": "Account (Email)",
+    "webdavPassword": "Password (App Password)",
+    "webdavPasswordHint": "Paste this App Password into your WebDAV client along with the account above.",
+    "noAppPasswords": "No App Passwords yet — create one in the App Passwords section first.",
+    "selectAppPassword": "Select an App Password",
+    "passwordUnavailable": "Can't be re-displayed — create a new one",
+    "caldavHint": "CalDAV server: take the Mount URL above and replace its trailing /dav/files/ with /dav. Same account & password — no separate calendar token needed.",
+    "icalTitle": "iCal Subscription",
+    "icalHint": "Subscribe to your personal calendar in Apple Calendar, Google Calendar, Outlook, etc. No extra parameters needed — subscribing with your own account (email + App Password) yields your personal calendar (private + team-shared events and dated todos).",
+    "icalPickPassword": "Choose the App Password for this subscription:",
+    "icalNoPassword": "Select an App Password above to generate the subscription URLs.",
+    "icalCombinedUrl": "One-click subscribe URL (email & App Password embedded)",
+    "icalCombinedHint": "For clients that only accept a single URL. It contains your credentials — only share it with calendar services you trust.",
+    "icalSeparateTitle": "URL + username / password (Basic Auth)",
+    "icalBasicUrl": "Subscribe URL",
+    "icalBasicAccount": "Username (email)",
+    "icalBasicPassword": "Password",
+    "icalBasicHint": "Clients such as Apple Calendar or Outlook ask for a username & password when subscribing — fill in the values above."
   },
   "calendar": {
     "title": "Calendar",
@@ -178,7 +224,13 @@
     "iCalUrl": "iCal subscribe URL",
     "joinTeam": "Join a team",
     "joinHint": "Generate an invite link in team settings, join and auto switch",
-    "joined": "Joined"
+    "joined": "Joined",
+    "webdavTitle": "Team WebDAV",
+    "webdavHint": "Mount team files via WebDAV for shared access on large screens or network drives.",
+    "webdavMountUrl": "Mount URL",
+    "webdavAccount": "Account",
+    "webdavPassword": "Password (Calendar Token)",
+    "webdavNote": "Use team:team_id as the account and the calendar token as the password (read-only, shared/public content only). WebDAV mounts at the URL above; the CalDAV server is /dav under the same origin and lists only the team calendar (no personal calendars)."
   },
   "settings": {
     "title": "Settings",
@@ -187,22 +239,26 @@
     "corsHint": "Allow these origins to access calendar subscriptions & WebDAV from the browser. Separate with commas, or use * to allow all",
     "saved": "Saved",
     "appPasswords": "App Passwords",
-    "appPasswordsHint": "Use these passwords for CalDAV, WebDAV, and iCal subscriptions. They grant full access to your calendar and files.",
-    "createAppPassword": "Create app password",
-    "appName": "App name",
-    "appNamePlaceholder": "e.g. Calendar App",
-    "appPasswordCreated": "Save this password now. It won't be shown again.",
-    "appPassword": "App password",
+    "appPasswordsHint": "Create App Passwords so external clients (CalDAV, WebDAV, iCal) can sign in as you. You can copy them from this list at any time.",
+    "appPasswordCreated": "App password created. You can copy it again anytime from the list below.",
+    "appName": "Name",
+    "appNamePlaceholder": "App name…",
+    "createAppPassword": "Create",
+    "noAppPasswords": "No app passwords yet",
     "revoke": "Revoke",
+    "revokeAppPasswordConfirm": "This app password will be permanently deleted. Continue?",
+    "appPasswordValue": "Password",
+    "currentSession": "Current",
     "sessions": "Sessions",
     "sessionsHint": "Manage your login sessions. Revoking a session will force it to sign out.",
-    "currentSession": "Current session",
-    "revokeSession": "Revoke session",
     "noSessions": "No active sessions",
-    "noAppPasswords": "No app passwords"
+    "revokeSession": "Revoke session",
+    "revokeSessionConfirm": "This will force the session to sign out. Continue?"
   },
   "common": {
     "loading": "Loading…",
+    "copy": "Copy",
+    "copied": "Copied",
     "save": "Save",
     "delete": "Delete",
     "cancel": "Cancel",
@@ -211,7 +267,9 @@
     "yes": "Yes",
     "no": "No",
     "search": "Search",
-    "close": "Close"
+    "close": "Close",
+    "collapse": "Collapse",
+    "expand": "Expand"
   },
   "error": {
     "bad_request": "Invalid request",

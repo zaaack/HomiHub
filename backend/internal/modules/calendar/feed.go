@@ -13,9 +13,10 @@ import (
 	"homihub/backend/internal/models"
 )
 
-// feed serves an iCal subscription feed. Supports family-level auth via
-// ?token=<family calendar_token> and member-level auth via Basic Auth
-// (email + family calendar_token).
+// feed serves an iCal subscription feed. The account decides the scope: a
+// member over Basic Auth (email + app password / calendar token) gets their
+// personal calendar (own private + team-shared events + dated todos); the
+// family ?token=<calendar_token> URL gets the team's shared calendar.
 func (h *Handler) feed(c *gin.Context) {
 	if email, pass, ok := c.Request.BasicAuth(); ok && email != "" && pass != "" {
 		h.feedAsMember(c, email, pass)
@@ -30,35 +31,20 @@ func (h *Handler) feedAsTeam(c *gin.Context) {
 		httpx.UnauthorizedT(c, "calendar_token_invalid")
 		return
 	}
-	scope := c.DefaultQuery("scope", "team")
+	// Team token = the team's shared calendar: team-visible/busy events + team
+	// todos. Personal (self) events of members are never included.
 	var evs []models.CalendarEvent
-	q := h.app.DB.Where("team_id = ?", fam.ID)
-	switch {
-	case scope == "self":
-		q = q.Where("visibility IN ?", []int{models.VisibilityPrivate, models.VisibilityBusy, models.VisibilityTeam})
-	default:
-		q = q.Where("visibility IN ?", []int{models.VisibilityTeam, models.VisibilityBusy})
-	}
-	if err := q.Order("starts_at").Find(&evs).Error; err != nil {
+	if err := h.app.DB.Where("team_id = ? AND visibility IN ?", fam.ID,
+		[]int{models.VisibilityTeam, models.VisibilityBusy}).Order("starts_at").Find(&evs).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
 		return
 	}
 	cal := BuildCalendar(fam.Name, evs)
-	if scope == "self" {
-		var todos []models.Todo
-		if err := h.app.DB.Where("team_id = ? AND user_id = ? AND calendar = ?", fam.ID, fam.OwnerID, calSelf).
-			Order("due_at").Find(&todos).Error; err == nil {
-			for i := range todos {
-				cal.Children = append(cal.Children, todoComponent(&todos[i]))
-			}
-		}
-	} else {
-		var todos []models.Todo
-		if err := h.app.DB.Where("team_id = ? AND calendar = ?", fam.ID, calTeam).
-			Order("due_at").Find(&todos).Error; err == nil {
-			for i := range todos {
-				cal.Children = append(cal.Children, todoComponent(&todos[i]))
-			}
+	var todos []models.Todo
+	if err := h.app.DB.Where("team_id = ? AND calendar = ?", fam.ID, calTeam).
+		Order("due_at").Find(&todos).Error; err == nil {
+		for i := range todos {
+			cal.Children = append(cal.Children, todoComponent(&todos[i]))
 		}
 	}
 	c.Data(http.StatusOK, "text/calendar; charset=utf-8", serialize(cal))
@@ -91,18 +77,13 @@ func (h *Handler) feedAsMember(c *gin.Context, email, pass string) {
 		httpx.UnauthorizedT(c, "calendar_token_invalid")
 		return
 	}
-	scope := c.DefaultQuery("scope", "self")
-	q := h.app.DB.Where("team_id = ?", fam.ID)
-	if scope == "team" {
-		q = q.Where("visibility IN ?", []int{models.VisibilityTeam, models.VisibilityBusy})
-	} else {
-		q = q.Where(
-			"visibility = ? OR (visibility = ? AND user_id = ?) OR visibility = ?",
-			models.VisibilityTeam, models.VisibilityPrivate, user.ID, models.VisibilityBusy,
-		)
-	}
+	// Member account = personal calendar: team-visible events of every member,
+	// own private events, busy events (masked below) + own dated todos.
 	var evs []models.CalendarEvent
-	if err := q.Order("starts_at").Find(&evs).Error; err != nil {
+	if err := h.app.DB.Where(
+		"team_id = ? AND (visibility = ? OR (visibility = ? AND user_id = ?) OR visibility = ?)",
+		fam.ID, models.VisibilityTeam, models.VisibilityPrivate, user.ID, models.VisibilityBusy,
+	).Order("starts_at").Find(&evs).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
 		return
 	}
@@ -114,21 +95,11 @@ func (h *Handler) feedAsMember(c *gin.Context, email, pass string) {
 		}
 	}
 	cal := BuildCalendar(fam.Name, evs)
-	if scope == "self" {
-		var todos []models.Todo
-		if err := h.app.DB.Where("team_id = ? AND user_id = ? AND calendar = ?", fam.ID, user.ID, calSelf).
-			Order("due_at").Find(&todos).Error; err == nil {
-			for i := range todos {
-				cal.Children = append(cal.Children, todoComponent(&todos[i]))
-			}
-		}
-	} else {
-		var todos []models.Todo
-		if err := h.app.DB.Where("team_id = ? AND calendar = ?", fam.ID, calTeam).
-			Order("due_at").Find(&todos).Error; err == nil {
-			for i := range todos {
-				cal.Children = append(cal.Children, todoComponent(&todos[i]))
-			}
+	var todos []models.Todo
+	if err := h.app.DB.Where("team_id = ? AND user_id = ? AND calendar = ?", fam.ID, user.ID, calSelf).
+		Order("due_at").Find(&todos).Error; err == nil {
+		for i := range todos {
+			cal.Children = append(cal.Children, todoComponent(&todos[i]))
 		}
 	}
 	c.Data(http.StatusOK, "text/calendar; charset=utf-8", serialize(cal))

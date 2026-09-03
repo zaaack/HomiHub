@@ -75,6 +75,27 @@ func (w *filesWebDAV) session(ctx context.Context) (*modulecalendar.DavSession, 
 	return w.h.session(ctx)
 }
 
+// parsePath resolves a /dav/files path for the current session. Team
+// (team:<id>) accounts are confined to the shared public scope: the personal
+// scope is invisible to them.
+func (w *filesWebDAV) parsePath(ctx context.Context, name string) (string, []string, error) {
+	scope, segs, err := parseFilesPath(name)
+	if err != nil {
+		return "", nil, err
+	}
+	if scope != models.ScopePersonal {
+		return scope, segs, nil
+	}
+	s, err := w.session(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	if s.IsTeam() {
+		return "", nil, fs.ErrNotExist
+	}
+	return scope, segs, nil
+}
+
 func (w *filesWebDAV) db(ctx context.Context) (*gorm.DB, error) {
 	s, err := w.session(ctx)
 	if err != nil {
@@ -171,13 +192,16 @@ type xfile struct {
 // --- webdav.FileSystem ---
 
 func (w *filesWebDAV) Mkdir(ctx context.Context, name string, perm os.FileMode) error {
-	scope, segs, err := parseFilesPath(name)
+	scope, segs, err := w.parsePath(ctx, name)
 	if err != nil {
 		return err
 	}
 	s, err := w.session(ctx)
 	if err != nil {
 		return err
+	}
+	if s.IsTeam() {
+		return fs.ErrPermission // team account is read-only
 	}
 	db, err := w.db(ctx)
 	if err != nil {
@@ -208,9 +232,14 @@ func (w *filesWebDAV) Mkdir(ctx context.Context, name string, perm os.FileMode) 
 }
 
 func (w *filesWebDAV) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (webdav.File, error) {
-	scope, segs, err := parseFilesPath(name)
+	scope, segs, err := w.parsePath(ctx, name)
 	if err != nil {
 		return nil, err
+	}
+	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
+		if s, serr := w.session(ctx); serr == nil && s.IsTeam() {
+			return nil, fs.ErrPermission // team account is read-only
+		}
 	}
 	if scope == "" || len(segs) == 0 {
 		// virtual scope root: only readable
@@ -278,7 +307,7 @@ func (w *filesWebDAV) OpenFile(ctx context.Context, name string, flag int, perm 
 }
 
 func (w *filesWebDAV) RemoveAll(ctx context.Context, name string) error {
-	scope, segs, err := parseFilesPath(name)
+	scope, segs, err := w.parsePath(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -288,6 +317,9 @@ func (w *filesWebDAV) RemoveAll(ctx context.Context, name string) error {
 	s, err := w.session(ctx)
 	if err != nil {
 		return err
+	}
+	if s.IsTeam() {
+		return fs.ErrPermission // team account is read-only
 	}
 	folderID, err := w.resolveFolder(ctx, scope, segs[:len(segs)-1])
 	if err != nil {
@@ -361,11 +393,11 @@ func (w *filesWebDAV) removeFolderTree(ctx context.Context, scope, folderID, own
 }
 
 func (w *filesWebDAV) Rename(ctx context.Context, oldName, newName string) error {
-	oScope, oSegs, err := parseFilesPath(oldName)
+	oScope, oSegs, err := w.parsePath(ctx, oldName)
 	if err != nil {
 		return err
 	}
-	nScope, nSegs, err := parseFilesPath(newName)
+	nScope, nSegs, err := w.parsePath(ctx, newName)
 	if err != nil {
 		return err
 	}
@@ -378,6 +410,9 @@ func (w *filesWebDAV) Rename(ctx context.Context, oldName, newName string) error
 	s, err := w.session(ctx)
 	if err != nil {
 		return err
+	}
+	if s.IsTeam() {
+		return fs.ErrPermission // team account is read-only
 	}
 	db, err := w.db(ctx)
 	if err != nil {
@@ -432,7 +467,7 @@ func (w *filesWebDAV) Rename(ctx context.Context, oldName, newName string) error
 }
 
 func (w *filesWebDAV) Stat(ctx context.Context, name string) (os.FileInfo, error) {
-	scope, segs, err := parseFilesPath(name)
+	scope, segs, err := w.parsePath(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -537,10 +572,13 @@ func (w *filesWebDAV) openScopeRoot(ctx context.Context, scope, name string) (*x
 	}
 	f := &xfile{w: w, ctx: ctx, name: name, scope: scope, isDir: true, isRoot: true}
 	if scope == "" {
-		f.children = []os.FileInfo{
-			xfileInfo{name: models.ScopePublic, mode: os.ModeDir | 0o755, modTime: time.Now()},
-			xfileInfo{name: models.ScopePersonal, mode: os.ModeDir | 0o755, modTime: time.Now()},
+		// Virtual scope root: members see public + personal; team-scoped
+		// accounts only the shared public space.
+		children := []os.FileInfo{xfileInfo{name: models.ScopePublic, mode: os.ModeDir | 0o755, modTime: time.Now()}}
+		if s, err := w.session(ctx); err == nil && !s.IsTeam() {
+			children = append(children, xfileInfo{name: models.ScopePersonal, mode: os.ModeDir | 0o755, modTime: time.Now()})
 		}
+		f.children = children
 		f.folderID = ""
 		return f, nil
 	}

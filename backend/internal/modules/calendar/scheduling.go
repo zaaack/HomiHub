@@ -49,6 +49,11 @@ func scheduleInboxMessagePath(email, item string) string {
 // handleScheduleOutboxPost handles a POST to the schedule-outbox (RFC 6638 §4.1):
 // a VFREEBUSY REQUEST is answered with a schedule-response XML document.
 func (h *syncDAVHandler) handleScheduleOutboxPost(w http.ResponseWriter, r *http.Request) {
+	// Team-scoped accounts have no personal identity to schedule on behalf of.
+	if s := h.b.session(r.Context()); s == nil || s.IsTeam() {
+		http.Error(w, "caldav: forbidden", http.StatusForbidden)
+		return
+	}
 	cal, err := parseCalendar(r)
 	if err != nil {
 		http.Error(w, "caldav: invalid iCalendar body", http.StatusBadRequest)
@@ -190,6 +195,10 @@ func (h *syncDAVHandler) handleScheduleInboxPropfind(w http.ResponseWriter, r *h
 		http.Error(w, "caldav: unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if s.IsTeam() {
+		http.Error(w, "caldav: forbidden", http.StatusForbidden)
+		return
+	}
 	var msgs []models.ScheduleMessage
 	middlewareScopedDB(h.b.app.DB, s.Team.ID).Where("user_id = ?", s.User.ID).Find(&msgs)
 	body := inboxMultiStatus{}
@@ -242,6 +251,10 @@ func (h *syncDAVHandler) handleScheduleInboxGet(w http.ResponseWriter, r *http.R
 		http.Error(w, "caldav: unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if s.IsTeam() {
+		http.Error(w, "caldav: forbidden", http.StatusForbidden)
+		return
+	}
 	_, item := scheduleMailboxPath(r.URL.Path)
 	msg, err := inboxMessage(h.b.app.DB, s, item)
 	if err != nil {
@@ -257,6 +270,10 @@ func (h *syncDAVHandler) handleScheduleInboxDelete(w http.ResponseWriter, r *htt
 	s := h.b.session(r.Context())
 	if s == nil {
 		http.Error(w, "caldav: unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if s.IsTeam() {
+		http.Error(w, "caldav: forbidden", http.StatusForbidden)
 		return
 	}
 	_, item := scheduleMailboxPath(r.URL.Path)

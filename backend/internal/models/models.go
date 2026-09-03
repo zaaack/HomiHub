@@ -53,6 +53,9 @@ type Token struct {
 	SubjectID  string     `gorm:"size:36" json:"subjectId"`
 	Name       string     `gorm:"size:128" json:"name"`
 	TokenHash  string     `gorm:"size:64;uniqueIndex;not null" json:"-"`
+	// TokenValue keeps the raw value of app passwords (kind="app_password") so
+	// they can be re-displayed/copied later. Session tokens leave it empty.
+	TokenValue string     `gorm:"size:128" json:"-"`
 	IP         string     `gorm:"size:64" json:"ip"`
 	UserAgent  string     `gorm:"size:512" json:"userAgent"`
 	ExpiresAt  *time.Time `json:"expiresAt"`

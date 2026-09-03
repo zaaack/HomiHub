@@ -33,6 +33,13 @@ import (
 const (
 	calSelf = "self"
 	calTeam = "team"
+	// Team accounts are documented as username "team:<teamID>" + the team's
+	// calendar token. HTTP Basic Auth splits credentials at the first ':', so
+	// such a username can never arrive intact: clients send user "team" with
+	// password "<teamID>:<calendarToken>". davAuth reassembles and validates
+	// that shape. Team accounts act as the whole team (no owner user) and only
+	// reach shared/team resources, read-only.
+	teamUser = "team"
 )
 
 var errNotFound = fs.ErrNotExist
@@ -56,7 +63,38 @@ func calNameFromPath(p string) string {
 type DavSession struct {
 	Team  *models.Team
 	Email string
-	User  *models.User
+	User  *models.User // nil for team-scoped (team:<id>) accounts
+}
+
+// IsTeam reports whether the session is a team-scoped account (no owner user).
+func (s *DavSession) IsTeam() bool { return s == nil || s.User == nil }
+
+// Owns reports whether the session belongs to the given user (team accounts
+// own nothing, so every busy event by a member is masked to them).
+func (s *DavSession) Owns(userID string) bool { return !s.IsTeam() && s.User.ID == userID }
+
+// ActorID returns the user ID used to attribute team-scoped activity: the
+// acting member, or the team owner for team-scoped accounts.
+func (s *DavSession) ActorID() string {
+	if s.User != nil {
+		return s.User.ID
+	}
+	if s.Team != nil {
+		return s.Team.OwnerID
+	}
+	return ""
+}
+
+// calAllowed reports whether the session may address a calendar by name.
+// Team-scoped accounts only see the built-in shared team calendar.
+func (s *DavSession) calAllowed(cal string) bool {
+	if cal == "" {
+		return false
+	}
+	if s.IsTeam() {
+		return cal == calTeam
+	}
+	return true
 }
 
 type davKey struct{}
@@ -80,6 +118,9 @@ func (b *davBackend) CalendarHomeSetPath(ctx context.Context) (string, error) {
 
 func (b *davBackend) CreateCalendar(ctx context.Context, calendar *caldav.Calendar) error {
 	s := b.session(ctx)
+	if s.IsTeam() {
+		return caldav.NewHTTPError(http.StatusForbidden, "team account is read-only")
+	}
 	name := calNameFromPath(calendar.Path)
 	if name == "" {
 		return errors.New("无效的日历路径")
@@ -148,6 +189,32 @@ func componentOf(cal *ical.Calendar) string {
 func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, error) {
 	s := b.session(ctx)
 	allComps := []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}
+	if s.IsTeam() {
+		// Team accounts have no personal identity: expose only the built-in
+		// shared team calendar (no self, no member-created custom calendars).
+		name, desc := s.Team.Name, s.Team.Name+" 的共享日历"
+		color, icon := "", ""
+		var ov models.Calendar
+		if err := middlewareScopedDB(b.app.DB, s.Team.ID).Where("name = ?", calTeam).First(&ov).Error; err == nil {
+			if ov.DisplayName != "" {
+				name = ov.DisplayName
+			}
+			if ov.Description != "" {
+				desc = ov.Description
+			}
+			color, icon = ov.Color, ov.Icon
+		}
+		return []caldav.Calendar{
+			{
+				Path:                  calendarPath(s.Email, calTeam),
+				Name:                  name,
+				Description:           desc,
+				Color:                 color,
+				Icon:                  icon,
+				SupportedComponentSet: allComps,
+			},
+		}, nil
+	}
 	// Read display name overrides for built-in calendars.
 	sc := func() *gorm.DB { return middlewareScopedDB(b.app.DB, s.Team.ID) }
 	overrides := map[string]models.Calendar{}
@@ -226,6 +293,9 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calendar, error) {
 	s := b.session(ctx)
 	cal := calNameFromPath(p)
+	if !s.calAllowed(cal) {
+		return nil, errNotFound
+	}
 	if cal == calSelf || cal == calTeam {
 		name, desc := "我的", "我的私人日历"
 		if cal == calTeam {
@@ -264,6 +334,9 @@ func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calenda
 
 func (b *davBackend) DeleteCalendar(ctx context.Context, p string) error {
 	cal := calNameFromPath(p)
+	if b.session(ctx).IsTeam() {
+		return caldav.NewHTTPError(http.StatusForbidden, "team account is read-only")
+	}
 	if cal == calSelf || cal == calTeam {
 		return caldav.NewHTTPError(http.StatusForbidden, "built-in calendar cannot be deleted")
 	}
@@ -276,6 +349,9 @@ func (b *davBackend) DeleteCalendar(ctx context.Context, p string) error {
 
 func (b *davBackend) SetCalendar(ctx context.Context, p string, cal *caldav.Calendar) error {
 	s := b.session(ctx)
+	if s.IsTeam() {
+		return caldav.NewHTTPError(http.StatusForbidden, "team account is read-only")
+	}
 	calName := calNameFromPath(p)
 	if calName == "" {
 		return errors.New("无效的日历路径")
@@ -404,7 +480,7 @@ func (b *davBackend) toObject(ctx context.Context, master *models.CalendarEvent,
 	all = append(all, exs...)
 	mod := master.UpdatedAt
 	for i := range all {
-		if cal == calTeam && all[i].Visibility == models.VisibilityBusy && all[i].UserID != s.User.ID {
+		if cal == calTeam && all[i].Visibility == models.VisibilityBusy && !s.Owns(all[i].UserID) {
 			all[i].Title = "忙碌"
 			all[i].Location = ""
 			all[i].Description = ""
@@ -461,7 +537,7 @@ func (b *davBackend) expandObject(ctx context.Context, master *models.CalendarEv
 
 	mod := master.UpdatedAt
 	for i := range instances {
-		if cal == calTeam && instances[i].Visibility == models.VisibilityBusy && instances[i].UserID != s.User.ID {
+		if cal == calTeam && instances[i].Visibility == models.VisibilityBusy && !s.Owns(instances[i].UserID) {
 			instances[i].Title = "忙碌"
 			instances[i].Location = ""
 			instances[i].Description = ""
@@ -568,7 +644,7 @@ func (b *davBackend) toTodoObject(ctx context.Context, t *models.Todo, cal strin
 
 func (b *davBackend) GetCalendarObject(ctx context.Context, p string, req *caldav.CalendarCompRequest) (*caldav.CalendarObject, error) {
 	cal := calNameFromPath(p)
-	if cal == "" {
+	if !b.session(ctx).calAllowed(cal) {
 		return nil, errNotFound
 	}
 	evs, todos, err := b.teamItems(ctx, cal)
@@ -604,7 +680,7 @@ func (b *davBackend) GetCalendarObject(ctx context.Context, p string, req *calda
 
 func (b *davBackend) ListCalendarObjects(ctx context.Context, p string, req *caldav.CalendarCompRequest) ([]caldav.CalendarObject, error) {
 	cal := calNameFromPath(p)
-	if cal == "" {
+	if !b.session(ctx).calAllowed(cal) {
 		return nil, nil
 	}
 	evs, todos, err := b.teamItems(ctx, cal)
@@ -753,7 +829,7 @@ func (b *davBackend) QueryFreeBusy(ctx context.Context, p string, q *caldav.Free
 	cal_out.Props.SetText(ical.PropProductID, "-//HomiHub//Team Calendar//CN")
 
 	fb := ical.NewComponent(ical.CompFreeBusy)
-	fb.Props.SetText(ical.PropUID, "freebusy-"+s.User.ID+"-"+start.UTC().Format(icalUTCFormat))
+	fb.Props.SetText(ical.PropUID, "freebusy-"+s.ActorID()+"-"+start.UTC().Format(icalUTCFormat))
 	fb.Props.SetDateTime(ical.PropDateTimeStamp, time.Now().UTC())
 	fb.Props.SetDateTime(ical.PropDateTimeStart, start)
 	fb.Props.SetDateTime(ical.PropDateTimeEnd, end)
@@ -991,6 +1067,9 @@ func inRange(ev *models.CalendarEvent, start, end time.Time) bool {
 // the payload are removed when the payload includes the master.
 func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.Calendar, opts *caldav.PutCalendarObjectOptions) (*caldav.CalendarObject, error) {
 	s := b.session(ctx)
+	if s.IsTeam() {
+		return nil, caldav.NewHTTPError(http.StatusForbidden, "team account is read-only")
+	}
 	calName := calNameFromPath(p)
 	switch comp := componentOf(cal); comp {
 	case ical.CompToDo:
@@ -1307,6 +1386,9 @@ func (b *davBackend) putJournal(ctx context.Context, p, calName string, journals
 }
 
 func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
+	if ses := b.session(ctx); ses.IsTeam() {
+		return caldav.NewHTTPError(http.StatusForbidden, "team account is read-only")
+	}
 	// A DELETE on the calendar collection itself removes the whole calendar.
 	if strings.HasSuffix(p, "/") {
 		return b.DeleteCalendar(ctx, p)
@@ -1363,6 +1445,30 @@ func (h *Handler) davAuth() gin.HandlerFunc {
 			c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
 			httpx.UnauthorizedT(c, "calendar_auth_required")
 			c.Abort()
+			return
+		}
+		// Team-scoped account: the documented username "team:<teamID>" arrives
+		// (after the first-colon split) as user "team" + password
+		// "<teamID>:<calendarToken>". The team acts as its own principal (no
+		// owner user) and only reaches shared/team resources, read-only.
+		if email == teamUser {
+			teamID, tok, ok := strings.Cut(pass, ":")
+			if !ok || teamID == "" || tok == "" {
+				c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
+				httpx.UnauthorizedT(c, "calendar_auth_required")
+				c.Abort()
+				return
+			}
+			var fam models.Team
+			if err := h.app.DB.Where("id = ? AND calendar_token = ?", teamID, tok).First(&fam).Error; err != nil {
+				c.Header("WWW-Authenticate", `Basic realm="HomiHub CalDAV"`)
+				httpx.UnauthorizedT(c, "calendar_auth_required")
+				c.Abort()
+				return
+			}
+			ctx := context.WithValue(c.Request.Context(), davKey{}, &DavSession{Team: &fam, Email: email})
+			c.Request = c.Request.WithContext(ctx)
+			c.Next()
 			return
 		}
 		var fam models.Team

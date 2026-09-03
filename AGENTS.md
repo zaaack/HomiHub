@@ -46,3 +46,4 @@ No automated tests exist yet. See `docs/TESTING.md` for planned test suites (Cal
 - `build.sh` does `rm -rf backend/static/*` before copying frontend dist — don't put anything you need in `backend/static/`.
 - `pnpm-lock.yaml` is the lockfile; use `pnpm install --frozen-lockfile` in CI/scripts.
 - No `README` exists. This file is the primary orientation doc.
+- **前端修改后必须运行 `./build.sh`** — 前端 dist 会通过 `go:embed` 嵌入到 Go 二进制文件中，只运行 `go run .` 不会包含最新的前端代码。

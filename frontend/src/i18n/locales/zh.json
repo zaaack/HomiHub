@@ -7,7 +7,10 @@
     "todos": "待办",
     "files": "文件",
     "team": "团队",
-    "settings": "设置"
+    "settings": "设置",
+    "profile": "个人资料",
+    "userSettings": "用户设置",
+    "security": "安全"
   },
   "auth": {
     "login": "登录",
@@ -18,6 +21,7 @@
     "teamName": "团队名称",
     "teamNamePlaceholder": "如：我的小家",
     "logout": "退出登录",
+    "logoutConfirm": "确定要退出登录吗？",
     "noAccount": "还没有账号？",
     "hasAccount": "已有账号？",
     "createTeam": "创建团队并注册",
@@ -28,6 +32,48 @@
     "child": "成员",
     "parent": "管理员",
     "role": "角色"
+  },
+  "profile": {
+    "title": "个人资料",
+    "basicInfo": "基本信息",
+    "saved": "资料已更新"
+  },
+  "security": {
+    "title": "安全设置",
+    "changePassword": "修改密码",
+    "currentPassword": "当前密码",
+    "newPassword": "新密码",
+    "passwordSaved": "密码已修改",
+    "sessions": "登录会话",
+    "sessionsHint": "管理登录会话，撤销会强制下线",
+    "currentSession": "当前会话",
+    "revokeSession": "撤销会话",
+    "revokeSessionConfirm": "撤销后该会话将被强制下线，确定继续？",
+    "noSessions": "无活跃会话"
+  },
+  "userSettings": {
+    "title": "用户设置",
+    "webdavTitle": "WebDAV / CalDAV 同步",
+    "webdavHint": "一套账号密码即可：WebDAV 用于挂载文件，CalDAV 用于同步日历（DAVx5、Apple 日历、Outlook 等）。",
+    "webdavMountUrl": "WebDAV 挂载地址",
+    "webdavAccount": "账号（邮箱）",
+    "webdavPassword": "密码（应用密码）",
+    "webdavPasswordHint": "将所选应用密码连同上方账号一起填入 WebDAV 客户端。",
+    "caldavHint": "CalDAV 服务器：把上方“挂载地址”末尾的 /dav/files/ 换成 /dav。账号与密码相同，无需单独的日历 Token。",
+    "noAppPasswords": "还没有应用密码，请先在“应用密码”一栏创建。",
+    "selectAppPassword": "选择应用密码",
+    "passwordUnavailable": "无法再次显示，请重新创建",
+    "icalTitle": "iCal 订阅",
+    "icalHint": "在 Apple 日历、Google 日历、Outlook 等中订阅个人日历。无需填写任何额外参数，使用你自己的账号（邮箱 + 应用密码）订阅即可得到个人日历（私人事件 + 团队共享事件 + 有日期的待办）。",
+    "icalPickPassword": "选择用于本次订阅的应用密码：",
+    "icalNoPassword": "请先在上方选择一个应用密码，以生成订阅地址。",
+    "icalCombinedUrl": "一键订阅地址（已含邮箱与应用密码）",
+    "icalCombinedHint": "适用于只接受单个 URL 的客户端。地址内含账号密码，请仅分享给可信的日历服务。",
+    "icalSeparateTitle": "URL + 用户名/密码（Basic Auth）",
+    "icalBasicUrl": "订阅地址",
+    "icalBasicAccount": "用户名（邮箱）",
+    "icalBasicPassword": "密码",
+    "icalBasicHint": "Apple 日历、Outlook 等客户端订阅时若要求输入用户名与密码，请填写上方内容。"
   },
   "calendar": {
     "title": "日历",
@@ -178,7 +224,13 @@
     "iCalUrl": "iCal 订阅地址",
     "joinTeam": "加入团队",
     "joinHint": "在团队设置页生成邀请链接，加入后自动切换",
-    "joined": "已加入"
+    "joined": "已加入",
+    "webdavTitle": "团队 WebDAV",
+    "webdavHint": "通过 WebDAV 挂载团队文件，适用于大屏或公共网盘等场景。",
+    "webdavMountUrl": "挂载地址",
+    "webdavAccount": "账号",
+    "webdavPassword": "密码（Calendar Token）",
+    "webdavNote": "使用 team:team_id 作为账号、Calendar Token 作为密码（只读，仅共享/公共内容）。WebDAV 挂载地址如上；CalDAV 服务器为同站点根路径下的 /dav（可看到团队共享日历，不含个人日历）。"
   },
   "settings": {
     "title": "设置",
@@ -187,22 +239,26 @@
     "corsHint": "允许以下域名在浏览器中访问日历订阅与 WebDAV 链接，多个域名用逗号分隔，或填 * 允许所有来源",
     "saved": "已保存",
     "appPasswords": "应用密码",
-    "appPasswordsHint": "用于 CalDAV、WebDAV 和 iCal 订阅，可访问日历和文件",
-    "createAppPassword": "创建应用密码",
-    "appName": "应用名称",
-    "appNamePlaceholder": "例如：日历应用",
-    "appPasswordCreated": "请保存此密码，不会再次显示",
-    "appPassword": "应用密码",
+    "appPasswordsHint": "为 CalDAV、WebDAV、iCal 订阅等外部客户端创建应用密码，之后可随时在列表中复制。",
+    "appPasswordCreated": "应用密码已创建，可随时在下方列表中复制。",
+    "appName": "名称",
+    "appNamePlaceholder": "应用名称…",
+    "createAppPassword": "创建",
+    "noAppPasswords": "暂无应用密码",
     "revoke": "撤销",
+    "revokeAppPasswordConfirm": "该应用密码将被永久删除，确定继续？",
+    "appPasswordValue": "密码",
+    "currentSession": "当前",
     "sessions": "登录会话",
     "sessionsHint": "管理登录会话，撤销会强制下线",
-    "currentSession": "当前会话",
-    "revokeSession": "撤销会话",
     "noSessions": "无活跃会话",
-    "noAppPasswords": "无应用密码"
+    "revokeSession": "撤销会话",
+    "revokeSessionConfirm": "撤销后该会话将被强制下线，确定继续？"
   },
   "common": {
     "loading": "加载中…",
+    "copy": "复制",
+    "copied": "已复制",
     "save": "保存",
     "delete": "删除",
     "cancel": "取消",
@@ -211,7 +267,9 @@
     "yes": "是",
     "no": "否",
     "search": "搜索",
-    "close": "关闭"
+    "close": "关闭",
+    "collapse": "折叠",
+    "expand": "展开"
   },
   "error": {
     "bad_request": "请求参数错误",

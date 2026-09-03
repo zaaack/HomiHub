@@ -279,6 +279,7 @@ type tokenEntry struct {
 	ID         string     `json:"id"`
 	Kind       string     `json:"kind"`
 	Name       string     `json:"name"`
+	Token      string     `json:"token,omitempty"` // app passwords only
 	IP         string     `json:"ip"`
 	UserAgent  string     `json:"userAgent"`
 	ExpiresAt  *time.Time `json:"expiresAt"`
@@ -336,14 +337,15 @@ func (h *Handler) createAppPassword(c *gin.Context) {
 	}
 	raw := middleware.RandomToken(32)
 	tok := models.Token{
-		ID:        uuid.Must(uuid.NewV7()).String(),
-		TeamID:    cl.TeamID,
-		Kind:      "app_password",
-		SubjectID: cl.UserID,
-		Name:      in.Name,
-		TokenHash: middleware.HashToken(raw),
-		IP:        c.ClientIP(),
-		UserAgent: c.Request.UserAgent(),
+		ID:         uuid.Must(uuid.NewV7()).String(),
+		TeamID:     cl.TeamID,
+		Kind:       "app_password",
+		SubjectID:  cl.UserID,
+		Name:       in.Name,
+		TokenHash:  middleware.HashToken(raw),
+		TokenValue: raw, // plaintext so it can be copied later from the list
+		IP:         c.ClientIP(),
+		UserAgent:  c.Request.UserAgent(),
 	}
 	if err := h.app.DB.Create(&tok).Error; err != nil {
 		httpx.ErrT(c, 500, "internal_error")
@@ -360,7 +362,7 @@ func (h *Handler) listAppPasswords(c *gin.Context) {
 	out := make([]tokenEntry, 0, len(tokens))
 	for _, t := range tokens {
 		out = append(out, tokenEntry{
-			ID: t.ID, Kind: t.Kind, Name: t.Name, IP: t.IP,
+			ID: t.ID, Kind: t.Kind, Name: t.Name, Token: t.TokenValue, IP: t.IP,
 			UserAgent: t.UserAgent, ExpiresAt: t.ExpiresAt,
 			LastUsedAt: t.LastUsedAt, CreatedAt: t.CreatedAt,
 		})
