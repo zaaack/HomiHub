@@ -145,25 +145,57 @@ func componentOf(cal *ical.Calendar) string {
 func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, error) {
 	s := b.session(ctx)
 	allComps := []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}
+	// Read display name overrides for built-in calendars.
+	sc := func() *gorm.DB { return middlewareScopedDB(b.app.DB, s.Team.ID) }
+	overrides := map[string]models.Calendar{}
+	for _, ov := range []string{calSelf, calTeam} {
+		var c models.Calendar
+		if err := sc().Where("name = ?", ov).First(&c).Error; err == nil {
+			overrides[ov] = c
+		}
+	}
+	selfName := "我的"
+	selfDesc := "我的私人日历"
+	if o, ok := overrides[calSelf]; ok {
+		if o.DisplayName != "" {
+			selfName = o.DisplayName
+		}
+		if o.Description != "" {
+			selfDesc = o.Description
+		}
+	}
+	teamName := s.Team.Name
+	teamDesc := s.Team.Name + " 的共享日历"
+	if o, ok := overrides[calTeam]; ok {
+		if o.DisplayName != "" {
+			teamName = o.DisplayName
+		}
+		if o.Description != "" {
+			teamDesc = o.Description
+		}
+	}
 	cals := []caldav.Calendar{
 		{
 			Path:                  calendarPath(s.Email, calSelf),
-			Name:                  "我的",
-			Description:           "我的私人日历",
+			Name:                  selfName,
+			Description:           selfDesc,
 			SupportedComponentSet: allComps,
 		},
 		{
 			Path:                  calendarPath(s.Email, calTeam),
-			Name:                  s.Team.Name,
-			Description:           s.Team.Name + " 的共享日历",
+			Name:                  teamName,
+			Description:           teamDesc,
 			SupportedComponentSet: allComps,
 		},
 	}
 	var dbCals []models.Calendar
-	if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Order("created_at").Find(&dbCals).Error; err != nil {
+	if err := sc().Order("created_at").Find(&dbCals).Error; err != nil {
 		return nil, err
 	}
 	for _, c := range dbCals {
+		if c.Name == calSelf || c.Name == calTeam {
+			continue // already handled above
+		}
 		comps := strings.Split(c.Components, ",")
 		if len(comps) == 0 || comps[0] == "" {
 			comps = allComps
@@ -181,11 +213,21 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calendar, error) {
 	s := b.session(ctx)
 	cal := calNameFromPath(p)
-	switch cal {
-	case calSelf:
-		return &caldav.Calendar{Path: p, Name: "我的", Description: "我的私人日历", SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}}, nil
-	case calTeam:
-		return &caldav.Calendar{Path: p, Name: s.Team.Name, Description: s.Team.Name + " 的共享日历", SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}}, nil
+	if cal == calSelf || cal == calTeam {
+		name, desc := "我的", "我的私人日历"
+		if cal == calTeam {
+			name, desc = s.Team.Name, s.Team.Name+" 的共享日历"
+		}
+		var ov models.Calendar
+		if err := middlewareScopedDB(b.app.DB, s.Team.ID).Where("name = ?", cal).First(&ov).Error; err == nil {
+			if ov.DisplayName != "" {
+				name = ov.DisplayName
+			}
+			if ov.Description != "" {
+				desc = ov.Description
+			}
+		}
+		return &caldav.Calendar{Path: p, Name: name, Description: desc, SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}}, nil
 	}
 	var c models.Calendar
 	if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Where("name = ?", cal).First(&c).Error; err != nil {
@@ -206,15 +248,53 @@ func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calenda
 func (b *davBackend) DeleteCalendar(ctx context.Context, p string) error {
 	cal := calNameFromPath(p)
 	if cal == calSelf || cal == calTeam {
-		// Built-in calendars cannot be deleted; succeed silently so external
-		// cleanup (e.g. caldav-server-tester teardown) does not fail.
-		return nil
+		return caldav.NewHTTPError(http.StatusForbidden, "built-in calendar cannot be deleted")
 	}
 	err := middleware.ScopedDB(b.app.DB, b.session(ctx).Team.ID).Where("name = ?", cal).Delete(&models.Calendar{}).Error
 	if err == nil {
 		err = middleware.ScopedDB(b.app.DB, b.session(ctx).Team.ID).Where("calendar = ?", cal).Delete(&models.CalendarEvent{}).Error
 	}
 	return err
+}
+
+func (b *davBackend) SetCalendar(ctx context.Context, p string, cal *caldav.Calendar) error {
+	s := b.session(ctx)
+	calName := calNameFromPath(p)
+	if calName == "" {
+		return errors.New("无效的日历路径")
+	}
+	sc := func() *gorm.DB { return middlewareScopedDB(b.app.DB, s.Team.ID) }
+	components := strings.Join(cal.SupportedComponentSet, ",")
+	// For built-in calendars, save display name override.
+	if calName == calSelf || calName == calTeam {
+		var c models.Calendar
+		if err := sc().Where("name = ?", calName).First(&c).Error; err != nil {
+			// create override row
+			c = models.Calendar{
+				ID:      uuid.Must(uuid.NewV7()).String(),
+				TeamID:  s.Team.ID,
+				Name:    calName,
+				OwnerID: s.User.ID,
+			}
+		}
+		c.DisplayName = cal.Name
+		c.Description = cal.Description
+		if components != "" {
+			c.Components = components
+		}
+		return sc().Save(&c).Error
+	}
+	// Custom calendar.
+	var c models.Calendar
+	if err := sc().Where("name = ?", calName).First(&c).Error; err != nil {
+		return err
+	}
+	c.DisplayName = cal.Name
+	c.Description = cal.Description
+	if components != "" {
+		c.Components = components
+	}
+	return sc().Save(&c).Error
 }
 
 // teamItems returns the resources visible in a calendar: VEVENT for both
