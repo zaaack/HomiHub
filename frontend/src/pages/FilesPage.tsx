@@ -327,47 +327,49 @@ export default function FilesPage() {
       </div>
       )}
 
-      {folders.length === 0 && files.length === 0 ? (
-        <div className="card py-12 text-center text-sm text-[var(--app-muted)]">{t('files.empty')}</div>
-      ) : (
-        <div className="card overflow-hidden">
-          <div className="divide-y divide-[var(--app-border)]">
-            {folders.map((f) => (
-              <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--app-card-sub)]">
-                <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => enterFolder(f.id, f.name)}>
-                  <Folder size={18} className="shrink-0 text-[var(--app-accent)]" />
-                  <span className="truncate font-medium">{f.name}</span>
-                </button>
-                <div className="shrink-0 text-xs text-[var(--app-muted)]">{new Date(f.updatedAt).toLocaleDateString()}</div>
-                <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-accent)]" onClick={() => { setRenameTarget({ id: f.id, name: f.name, isFolder: true }); setRenameName(f.name) }} title={t('files.rename')}>
-                  <PenLine size={16} />
-                </button>
-                <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-danger)]" onClick={() => void deleteFolder(f.id)}>
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            ))}
-            {files.map((f) => (
-              <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--app-card-sub)]">
-                <FileIcon size={18} className="shrink-0 text-[var(--app-muted)]" />
-                <button className="min-w-0 flex-1 truncate text-left font-medium hover:text-[var(--app-accent)]" onClick={() => void download(f)}>
-                  {f.name}
-                </button>
-                <div className="shrink-0 text-xs text-[var(--app-muted)]">{fmtSize(f.size)}</div>
-                <div className="shrink-0 text-xs text-[var(--app-muted)]">{new Date(f.updatedAt).toLocaleDateString()}</div>
-                <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-accent)]" onClick={() => void download(f)} title={t('files.download')}>
-                  <Download size={16} />
-                </button>
-                <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-accent)]" onClick={() => { setRenameTarget({ id: f.id, name: f.name, isFolder: false }); setRenameName(f.name) }} title={t('files.rename')}>
-                  <PenLine size={16} />
-                </button>
-                <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-danger)]" onClick={() => void deleteFile(f.id)}>
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            ))}
+      {tab === 'files' && (
+        folders.length === 0 && files.length === 0 ? (
+          <div className="card py-12 text-center text-sm text-[var(--app-muted)]">{t('files.empty')}</div>
+        ) : (
+          <div className="card overflow-hidden">
+            <div className="divide-y divide-[var(--app-border)]">
+              {folders.map((f) => (
+                <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--app-card-sub)]">
+                  <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => enterFolder(f.id, f.name)}>
+                    <Folder size={18} className="shrink-0 text-[var(--app-accent)]" />
+                    <span className="truncate font-medium">{f.name}</span>
+                  </button>
+                  <div className="shrink-0 text-xs text-[var(--app-muted)]">{new Date(f.updatedAt).toLocaleDateString()}</div>
+                  <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-accent)]" onClick={() => { setRenameTarget({ id: f.id, name: f.name, isFolder: true }); setRenameName(f.name) }} title={t('files.rename')}>
+                    <PenLine size={16} />
+                  </button>
+                  <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-danger)]" onClick={() => void deleteFolder(f.id)}>
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+              {files.map((f) => (
+                <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--app-card-sub)]">
+                  <FileIcon size={18} className="shrink-0 text-[var(--app-muted)]" />
+                  <button className="min-w-0 flex-1 truncate text-left font-medium hover:text-[var(--app-accent)]" onClick={() => void download(f)}>
+                    {f.name}
+                  </button>
+                  <div className="shrink-0 text-xs text-[var(--app-muted)]">{fmtSize(f.size)}</div>
+                  <div className="shrink-0 text-xs text-[var(--app-muted)]">{new Date(f.updatedAt).toLocaleDateString()}</div>
+                  <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-accent)]" onClick={() => void download(f)} title={t('files.download')}>
+                    <Download size={16} />
+                  </button>
+                  <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-accent)]" onClick={() => { setRenameTarget({ id: f.id, name: f.name, isFolder: false }); setRenameName(f.name) }} title={t('files.rename')}>
+                    <PenLine size={16} />
+                  </button>
+                  <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-danger)]" onClick={() => void deleteFile(f.id)}>
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )
       )}
 
       {tab === 'attachments' && (
