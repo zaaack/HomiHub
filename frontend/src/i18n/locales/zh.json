@@ -262,7 +262,29 @@
     "upload": "添加附件",
     "download": "下载",
     "delete": "删除",
-    "deleteConfirm": "确定删除该附件？"
+    "deleteConfirm": "确定删除该附件？",
+    "tab": "附件管理",
+    "filesTab": "文件",
+    "filterKind": "类型",
+    "filterStatus": "完成状态",
+    "all": "全部",
+    "event": "日历事件",
+    "note": "日记",
+    "todo": "待办",
+    "completed": "已完成",
+    "pending": "未完成",
+    "from": "开始日期",
+    "to": "结束日期",
+    "belongsTo": "所属条目",
+    "openItem": "打开",
+    "noFiltered": "没有符合筛选条件的附件"
+  },
+  "trash": {
+    "tab": "回收站",
+    "empty": "回收站是空的",
+    "restore": "恢复",
+    "purge": "彻底删除",
+    "purgeConfirm": "确定彻底删除该文件？此操作不可恢复。"
   },
   "team": {
     "title": "团队设置",
@@ -309,7 +331,11 @@
     "sessionsHint": "管理登录会话，撤销会强制下线",
     "noSessions": "无活跃会话",
     "revokeSession": "撤销会话",
-    "revokeSessionConfirm": "撤销后该会话将被强制下线，确定继续？"
+    "revokeSessionConfirm": "撤销后该会话将被强制下线，确定继续？",
+    "trashTitle": "回收站",
+    "trashHint": "删除的文件与附件进入回收站，保留指定天数后自动彻底删除。",
+    "trashDays": "天",
+    "trashZeroHint": "设为 0 表示永久保留，不自动删除。"
   },
   "common": {
     "loading": "加载中…",
@@ -325,7 +351,8 @@
     "search": "搜索",
     "close": "关闭",
     "collapse": "折叠",
-    "expand": "展开"
+    "expand": "展开",
+    "reset": "重置"
   },
   "error": {
     "bad_request": "请求参数错误",

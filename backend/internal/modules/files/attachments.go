@@ -175,10 +175,10 @@ func (h *Handler) listManage(c *gin.Context) {
 		q = q.Where("kind = ?", kind)
 	}
 	if from := c.Query("from"); from != "" {
-		q = q.Where("created_at >= ?", from)
+		q = q.Where("created_at >= ?", parseFilterTime(from))
 	}
 	if to := c.Query("to"); to != "" {
-		q = q.Where("created_at <= ?", to)
+		q = q.Where("created_at <= ?", parseFilterTime(to))
 	}
 	var atts []models.Attachment
 	if err := q.Order("created_at desc").Find(&atts).Error; err != nil {
@@ -262,7 +262,7 @@ func attachmentView(base *gorm.DB, teamID string, a models.Attachment) models.At
 	v := models.AttachmentView{Attachment: a}
 	var f models.File
 	sc := func() *gorm.DB { return middleware.ScopedDB(base, teamID) }
-	if err := sc().First(&f, "id = ?", a.FileID).Error; err != nil {
+	if err := sc().First(&f, "id = ? AND deleted_at IS NULL", a.FileID).Error; err != nil {
 		return v
 	}
 	v.Name = f.Name
@@ -270,6 +270,19 @@ func attachmentView(base *gorm.DB, teamID string, a models.Attachment) models.At
 	v.Size = f.Size
 	v.URL = "/api/v1/files/" + f.ID + "/content"
 	return v
+}
+
+// parseFilterTime converts a manage-list filter value to a time.Time. It
+// accepts an RFC3339 timestamp or a bare YYYY-MM-DD date (interpreted as the
+// start of that UTC day).
+func parseFilterTime(v string) time.Time {
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t
+	}
+	if t, err := time.Parse("2006-01-02", v); err == nil {
+		return t
+	}
+	return time.Now()
 }
 
 func (h *Handler) deleteAttachment(c *gin.Context) {

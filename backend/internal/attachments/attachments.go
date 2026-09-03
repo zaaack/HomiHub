@@ -29,7 +29,7 @@ func ViewsForItem(base *gorm.DB, teamID, kind, itemID string) []models.Attachmen
 		byID[atts[i].FileID] = atts[i]
 	}
 	var files []models.File
-	if err := sc().Where("id IN ?", ids).Find(&files).Error; err != nil {
+	if err := sc().Where("id IN ? AND deleted_at IS NULL", ids).Find(&files).Error; err != nil {
 		return nil
 	}
 	out := make([]models.AttachmentView, 0, len(files))

@@ -21,6 +21,18 @@ _token = None
 _caltoken = None
 _server = None
 
+# Direct (proxy-free) opener for localhost test traffic. urllib picks up
+# http_proxy/https_proxy from the environment, which would route loopback
+# requests through the user's proxy and cause intermittent 502s.
+_opener = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    urllib.request.HTTPSHandler(),
+)
+
+
+def _open(req, timeout=15):
+    return _opener.open(req, timeout=timeout)
+
 
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -61,7 +73,7 @@ def start_server():
         _server = subprocess.Popen([TEST_BIN], stdout=fh, stderr=subprocess.STDOUT, env=env)
     for _ in range(80):
         try:
-            with urllib.request.urlopen(f"{TEST_HOST}/health", timeout=2) as r:
+            with _open(urllib.request.Request(f"{TEST_HOST}/health"), timeout=2) as r:
                 if r.status == 200:
                     log(f"server up (pid {_server.pid})")
                     return
@@ -113,7 +125,7 @@ def request(method, path, body=None, token=None, raw=False):
     if body is not None:
         req.add_header("Content-Type", "application/json")
         req.data = json.dumps(body).encode()
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with _open(req) as resp:
         data = resp.read()
         return data if raw else json.loads(data)
 
@@ -134,7 +146,7 @@ def multipart_upload(path, filefield, filename, filedata, token=None, extra=None
     req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
     if token or (_token and path.startswith("/api/")):
         req.add_header("Authorization", f"Bearer {token or _token}")
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with _open(req, timeout=30) as resp:
         return json.loads(resp.read())
 
 

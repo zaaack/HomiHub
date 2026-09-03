@@ -189,6 +189,22 @@ export interface Attachment {
   createdAt: string
 }
 
+// Reverse-lookup info: which event / note / todo an attachment belongs to.
+export interface AttachmentItemInfo {
+  id: string
+  kind: 'event' | 'note' | 'todo'
+  title: string
+  calendar: string
+  completed: boolean
+  startsAt?: string
+  endsAt?: string
+  dueAt?: string | null
+}
+
+export interface AttachmentManageView extends Attachment {
+  item: AttachmentItemInfo | null
+}
+
 export interface FileFolderItem {
   id: string
   teamId: string

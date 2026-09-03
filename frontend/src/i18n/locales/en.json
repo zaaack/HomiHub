@@ -262,7 +262,29 @@
     "upload": "Add attachment",
     "download": "Download",
     "delete": "Delete",
-    "deleteConfirm": "Delete this attachment?"
+    "deleteConfirm": "Delete this attachment?",
+    "tab": "Attachments",
+    "filesTab": "Files",
+    "filterKind": "Type",
+    "filterStatus": "Status",
+    "all": "All",
+    "event": "Calendar event",
+    "note": "Note",
+    "todo": "Todo",
+    "completed": "Completed",
+    "pending": "Not completed",
+    "from": "From",
+    "to": "To",
+    "belongsTo": "Owned by",
+    "openItem": "Open",
+    "noFiltered": "No attachments match the filters"
+  },
+  "trash": {
+    "tab": "Trash",
+    "empty": "Trash is empty",
+    "restore": "Restore",
+    "purge": "Delete permanently",
+    "purgeConfirm": "Permanently delete this file? This cannot be undone."
   },
   "team": {
     "title": "Team settings",
@@ -309,7 +331,11 @@
     "sessionsHint": "Manage your login sessions. Revoking a session will force it to sign out.",
     "noSessions": "No active sessions",
     "revokeSession": "Revoke session",
-    "revokeSessionConfirm": "This will force the session to sign out. Continue?"
+    "revokeSessionConfirm": "This will force the session to sign out. Continue?",
+    "trashTitle": "Trash",
+    "trashHint": "Deleted files and attachments go to the trash and are permanently removed after the configured number of days.",
+    "trashDays": "days",
+    "trashZeroHint": "Set to 0 to keep items forever (no automatic deletion)."
   },
   "common": {
     "loading": "Loading…",
@@ -325,7 +351,8 @@
     "search": "Search",
     "close": "Close",
     "collapse": "Collapse",
-    "expand": "Expand"
+    "expand": "Expand",
+    "reset": "Reset"
   },
   "error": {
     "bad_request": "Invalid request",

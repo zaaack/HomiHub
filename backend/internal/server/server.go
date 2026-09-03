@@ -65,6 +65,7 @@ func New(cfg *config.Config, database *gorm.DB, staticFS http.FileSystem) *gin.E
 		panic(err)
 	}
 	settingsMod.SetCORSProvider(cors)
+	filesMod.StartTrashCleaner()
 
 	calMod.RegisterDAV(r.Group(""), filesMod.DAVHandler())
 

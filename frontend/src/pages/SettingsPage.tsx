@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Save, ShieldCheck } from 'lucide-react'
+import { Save, ShieldCheck, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../store/auth'
 
@@ -8,6 +8,7 @@ export default function SettingsPage() {
   const { t } = useTranslation()
   const { user } = useAuth()
   const [origins, setOrigins] = useState('')
+  const [trashDays, setTrashDays] = useState(90)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -16,6 +17,10 @@ export default function SettingsPage() {
       .get<{ origins: string }>('/api/v1/settings/cors')
       .then((r) => setOrigins(r.origins ?? ''))
       .catch(() => {})
+    void api
+      .get<{ days: number }>('/api/v1/settings/trash')
+      .then((r) => setTrashDays(r.days ?? 90))
+      .catch(() => {})
   }, [])
 
   const save = async () => {
@@ -23,6 +28,7 @@ export default function SettingsPage() {
     setSaved(false)
     try {
       await api.put('/api/v1/settings/cors', { origins })
+      await api.put('/api/v1/settings/trash', { days: trashDays })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } finally {
@@ -65,6 +71,25 @@ export default function SettingsPage() {
           </button>
           {saved && <span className="text-sm text-[var(--app-accent)]">{t('settings.saved')}</span>}
         </div>
+      </div>
+
+      <div className="card p-4">
+        <div className="mb-3 flex items-center gap-2 text-base font-semibold">
+          <Trash2 size={18} />
+          {t('settings.trashTitle')}
+        </div>
+        <p className="mb-3 text-xs text-[var(--app-muted)]">{t('settings.trashHint')}</p>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            min={0}
+            className="input w-32"
+            value={trashDays}
+            onChange={(e) => setTrashDays(Number(e.target.value))}
+          />
+          <span className="text-sm text-[var(--app-muted)]">{t('settings.trashDays')}</span>
+        </div>
+        <p className="mt-2 text-xs text-[var(--app-faint)]">{t('settings.trashZeroHint')}</p>
       </div>
     </div>
   )

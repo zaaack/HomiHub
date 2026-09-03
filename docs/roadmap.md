@@ -133,12 +133,26 @@ organizer 的行记录受邀者（`Attendees` JSON，RFC 5545 语义），同时
 ### 五-B 附件（事件/待办/笔记）✅（已实现）
 
 - `models.Attachment(TeamID, Kind, ItemID, FileID, UserID, Scope)` 关联行 +
-  `File.AttachmentOf`（附件文件在 Files 页根列表隐藏，但在 WebDAV 目录可见、可经 URL 访问）。
+  `File.AttachmentOf`（附件文件在 Files 页列表与 WebDAV 目录均隐藏，仅经 URL 访问）。
 - REST：`POST /api/v1/attachments`（multipart：kind + itemId + file）、
   `GET /api/v1/attachments?kind=&itemId=`、`DELETE /api/v1/attachments/:id`。
 - 权限与所属对象一致：个人（self）项 → 个人（personal）目录、仅 owner 可写；团队/共享项 → 公共（public）目录。
-- 删除事件/待办/笔记（含删除清单级联）时同步软删附件文件与关联行；在 Files 页删除文件也会解除附件关联。
-- 前端：事件/待办/笔记编辑弹窗内置“附件”区域（上传/下载/删除），新项首次保存后可添加附件。
+- 附件删除权限：普通用户只能删除自己上传的附件，管理员（parent）可删除全部。
+- 删除事件/待办/笔记（含删除清单级联、CalDAV 删除路径）时同步软删附件文件并移除关联行；在 Files 页删除文件也会解除附件关联。
+- 附件管理：`GET /api/v1/attachments/manage?kind=&completed=&from=&to=` 返回当前用户可见的全部附件，
+  并附带反向查找信息（所属条目标题/类型/完成状态/时间，`AttachmentItemInfo`），支持按类型、
+  完成状态（待办 Completed、事件 EndsAt 是否已过、日记不参与）与附件创建时间范围过滤。
+- 前端：文件库页内置「文件 / 附件管理」双 Tab；附件管理支持筛选、反向跳转到所属条目、下载与删除。
+- 事件/待办/笔记编辑弹窗内置“附件”区域（上传/下载/删除），新项首次保存后可添加附件。
+
+### 五-B2 回收站 ✅（已实现）
+
+- 删除的文件（含附件文件）先进回收站（软删 `deleted_at`），默认保留 90 天，到期由每日凌晨 3 点
+  的 cron（`robfig/cron/v3`）彻底清除（blob + 行 + 附件关联）。
+- 系统设置页可配置保留天数（`/api/v1/settings/trash`），设为 0 表示永久保留、不自动删除。
+- REST：`GET /api/v1/files/trash?scope=`（列表）、`POST /api/v1/files/trash/:id/restore`（恢复）、
+  `DELETE /api/v1/files/trash/:id`（彻底删除）。
+- 前端：文件库页新增「回收站」Tab，支持恢复与彻底删除；父账号可见全部 scope。
 
 **风险/待定**
 - 附件副本：受邀成员的 self 副本不复制附件（附件随 organizer 主行）。

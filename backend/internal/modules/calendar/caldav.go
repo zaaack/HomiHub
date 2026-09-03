@@ -24,6 +24,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"homihub/backend/internal/attachments"
 	"homihub/backend/internal/httpx"
 	"homihub/backend/internal/middleware"
 	"homihub/backend/internal/models"
@@ -370,7 +371,14 @@ func (b *davBackend) DeleteCalendar(ctx context.Context, p string) error {
 	}
 	err := middleware.ScopedDB(b.app.DB, b.session(ctx).Team.ID).Where("name = ?", cal).Delete(&models.Calendar{}).Error
 	if err == nil {
-		err = middleware.ScopedDB(b.app.DB, b.session(ctx).Team.ID).Where("calendar = ?", cal).Delete(&models.CalendarEvent{}).Error
+		sc := func() *gorm.DB { return middleware.ScopedDB(b.app.DB, b.session(ctx).Team.ID) }
+		var evs []models.CalendarEvent
+		if sc().Where("calendar = ?", cal).Find(&evs).Error == nil {
+			for i := range evs {
+				_ = attachments.DeleteForItem(b.app.DB, b.session(ctx).Team.ID, evs[i].ID)
+			}
+		}
+		err = sc().Where("calendar = ?", cal).Delete(&models.CalendarEvent{}).Error
 	}
 	return err
 }
@@ -1482,19 +1490,20 @@ func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
 			err := sc().Where("uid = ? AND calendar = ?", uid, t.Calendar).Delete(&models.Todo{}).Error
 			if err == nil {
 				recordTodoLog(sc(), s.Team.ID, s.User.ID, t.ID, "delete", "")
+				_ = attachments.DeleteForItem(b.app.DB, s.Team.ID, t.ID)
 				_, _ = syncLogChange(b.app.DB, s.Team.ID, cal, p, "", true)
 			}
 			return err
 		}
 	}
 	// Check events exist before deleting so we don't log phantom deletes.
-	var count int64
-	sc().Model(&models.CalendarEvent{}).Where("uid = ? AND calendar = ?", uid, cal).Count(&count)
-	if count == 0 {
+	var ev models.CalendarEvent
+	if err := sc().Where("uid = ? AND calendar = ?", uid, cal).First(&ev).Error; err != nil {
 		return nil
 	}
 	err = sc().Where("uid = ? AND calendar = ?", uid, cal).Delete(&models.CalendarEvent{}).Error
 	if err == nil {
+		_ = attachments.DeleteForItem(b.app.DB, s.Team.ID, ev.ID)
 		_, _ = syncLogChange(b.app.DB, s.Team.ID, cal, p, "", true)
 	}
 	return err

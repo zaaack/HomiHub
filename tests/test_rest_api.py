@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 from harness import (caltoken, log, request, multipart_upload, TEST_HOST,
-                     TEST_EMAIL, TEST_TEAM, start_server, stop_server, register_user)
+                     TEST_EMAIL, TEST_TEAM, start_server, stop_server, register_user, _open)
 
 failures = 0
 
@@ -85,6 +85,36 @@ def run():
     request("DELETE", f"/api/v1/files/folders/{folder_id}")
     check("folder delete", True)
 
+    # Recycle bin: the deleted file appears in trash and can be restored.
+    trash = request("GET", "/api/v1/files/trash?scope=public")
+    check("trash lists deleted file", any(x["id"] == file_id for x in trash["data"]))
+    request("POST", f"/api/v1/files/trash/{file_id}/restore", {})
+    trash2 = request("GET", "/api/v1/files/trash?scope=public")
+    check("trash restore removes from trash", all(x["id"] != file_id for x in trash2["data"]))
+    restored = request("GET", f"/api/v1/files?folderId={folder_id}&scope=public")
+    check("trash restore brings file back", any(x["id"] == file_id for x in restored["data"]))
+
+    # Trash retention setting (default 90, 0 = keep forever).
+    st = request("GET", "/api/v1/settings/trash")
+    check("trash settings default", st["data"]["days"] == 90)
+    request("PUT", "/api/v1/settings/trash", {"days": 7})
+    st = request("GET", "/api/v1/settings/trash")
+    check("trash settings update", st["data"]["days"] == 7)
+
+    # Permanent delete removes the file from trash and storage.
+    ff2 = multipart_upload("/api/v1/files", "file", "purge.txt", b"purge me\n",
+                           extra={"scope": "public"})
+    file2 = ff2["data"]["id"]
+    request("DELETE", f"/api/v1/files/{file2}")
+    request("DELETE", f"/api/v1/files/trash/{file2}")
+    trash3 = request("GET", "/api/v1/files/trash?scope=public")
+    check("trash permanent delete removes file", all(x["id"] != file2 for x in trash3["data"]))
+    try:
+        request("GET", f"/api/v1/files/{file2}/content", raw=True)
+        check("trash permanent delete removes content", False)
+    except Exception:
+        check("trash permanent delete removes content", True)
+
     # ------- Attachments -------
     log("=== Attachments ===")
     ev2 = request("POST", "/api/v1/events", {
@@ -104,6 +134,14 @@ def run():
 
     att_content = request("GET", f"/api/v1/files/{att['data']['fileId']}/content", raw=True)
     check("attachment content", att_content == b"attachment body\n")
+
+    # Attachment management list carries reverse-lookup item info.
+    manage = request("GET", "/api/v1/attachments/manage")
+    check("attachment manage list",
+          any(x["item"] and x["item"]["id"] == ev2_id and x["item"]["title"] == "AttachEvent"
+              for x in manage["data"]))
+    manage_ev = request("GET", "/api/v1/attachments/manage?kind=event")
+    check("attachment manage kind filter", all(x["kind"] == "event" for x in manage_ev["data"]))
 
     # Attachment files are hidden from the Files page listing.
     fl = request("GET", "/api/v1/files?scope=public")
@@ -127,14 +165,14 @@ def run():
     check("team members", len(members["data"]) >= 1)
 
     import urllib.request
-    feed_team = urllib.request.urlopen(
-        f"{TEST_HOST}/api/v1/calendar/team.ics?token={caltoken()}").read().decode()
+    feed_team = _open(urllib.request.Request(
+        f"{TEST_HOST}/api/v1/calendar/team.ics?token={caltoken()}")).read().decode()
     check("ical team feed", "VCALENDAR" in feed_team)
 
     # Personal (self) feed is keyed by an App Password in the URL — no account.
     ap = request("POST", "/api/v1/auth/app-passwords", {"name": "ical test"})
-    feed_self = urllib.request.urlopen(
-        f"{TEST_HOST}/api/v1/calendar/feed.ics?token={ap['data']['token']}").read().decode()
+    feed_self = _open(urllib.request.Request(
+        f"{TEST_HOST}/api/v1/calendar/feed.ics?token={ap['data']['token']}")).read().decode()
     check("ical self feed", "VCALENDAR" in feed_self)
 
     # ------- Health -------
