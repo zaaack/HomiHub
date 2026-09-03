@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	calSelf   = "self"
+	calSelf = "self"
 	calTeam = "team"
 )
 
@@ -51,9 +51,9 @@ func calNameFromPath(p string) string {
 }
 
 type DavSession struct {
-	Team *models.Team
-	Email  string
-	User   *models.User
+	Team  *models.Team
+	Email string
+	User  *models.User
 }
 
 type davKey struct{}
@@ -84,31 +84,79 @@ func (b *davBackend) CreateCalendar(ctx context.Context, calendar *caldav.Calend
 	if name == calSelf || name == calTeam {
 		return errors.New("保留的日历名")
 	}
+	components := strings.Join(calendar.SupportedComponentSet, ",")
+	if components == "" {
+		components = strings.Join([]string{ical.CompEvent, ical.CompToDo, ical.CompJournal}, ",")
+	}
 	cal := models.Calendar{
 		ID:          uuid.Must(uuid.NewV7()).String(),
 		TeamID:      s.Team.ID,
 		Name:        name,
 		DisplayName: calendar.Name,
 		Description: calendar.Description,
+		Components:  components,
 		OwnerID:     s.User.ID,
 	}
 	return middleware.ScopedDB(b.app.DB, s.Team.ID).Create(&cal).Error
 }
 
+// calendarComponents returns the supported component set of a calendar:
+// built-in self/team calendars always accept VEVENT/VTODO/VJOURNAL; custom
+// calendars return the set persisted at MKCALENDAR time (default all three).
+func (b *davBackend) calendarComponents(ctx context.Context, cal string) ([]string, error) {
+	if cal == calSelf || cal == calTeam {
+		return []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}, nil
+	}
+	var c models.Calendar
+	if err := middleware.ScopedDB(b.app.DB, b.session(ctx).Team.ID).
+		Where("name = ?", cal).First(&c).Error; err != nil {
+		return nil, err
+	}
+	if c.Components == "" {
+		return []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}, nil
+	}
+	return strings.Split(c.Components, ","), nil
+}
+
+func (b *davBackend) supportsComponent(ctx context.Context, cal, comp string) bool {
+	comps, err := b.calendarComponents(ctx, cal)
+	if err != nil {
+		return false
+	}
+	for _, c := range comps {
+		if strings.EqualFold(c, comp) {
+			return true
+		}
+	}
+	return false
+}
+
+// componentOf reports the primary iCalendar component type of a payload.
+func componentOf(cal *ical.Calendar) string {
+	for _, child := range cal.Children {
+		switch child.Name {
+		case ical.CompToDo, ical.CompEvent, ical.CompJournal, ical.CompFreeBusy:
+			return child.Name
+		}
+	}
+	return ""
+}
+
 func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, error) {
 	s := b.session(ctx)
+	allComps := []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}
 	cals := []caldav.Calendar{
 		{
 			Path:                  calendarPath(s.Email, calSelf),
 			Name:                  "我的",
 			Description:           "我的私人日历",
-			SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal},
+			SupportedComponentSet: allComps,
 		},
 		{
 			Path:                  calendarPath(s.Email, calTeam),
 			Name:                  s.Team.Name,
 			Description:           s.Team.Name + " 的共享日历",
-			SupportedComponentSet: []string{ical.CompEvent, ical.CompJournal},
+			SupportedComponentSet: allComps,
 		},
 	}
 	var dbCals []models.Calendar
@@ -116,11 +164,15 @@ func (b *davBackend) ListCalendars(ctx context.Context) ([]caldav.Calendar, erro
 		return nil, err
 	}
 	for _, c := range dbCals {
+		comps := strings.Split(c.Components, ",")
+		if len(comps) == 0 || comps[0] == "" {
+			comps = allComps
+		}
 		cals = append(cals, caldav.Calendar{
 			Path:                  calendarPath(s.Email, c.Name),
 			Name:                  c.DisplayName,
 			Description:           c.Description,
-			SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal},
+			SupportedComponentSet: comps,
 		})
 	}
 	return cals, nil
@@ -133,17 +185,21 @@ func (b *davBackend) GetCalendar(ctx context.Context, p string) (*caldav.Calenda
 	case calSelf:
 		return &caldav.Calendar{Path: p, Name: "我的", Description: "我的私人日历", SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}}, nil
 	case calTeam:
-		return &caldav.Calendar{Path: p, Name: s.Team.Name, Description: s.Team.Name + " 的共享日历", SupportedComponentSet: []string{ical.CompEvent, ical.CompJournal}}, nil
+		return &caldav.Calendar{Path: p, Name: s.Team.Name, Description: s.Team.Name + " 的共享日历", SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}}, nil
 	}
 	var c models.Calendar
 	if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Where("name = ?", cal).First(&c).Error; err != nil {
 		return nil, errNotFound
 	}
+	comps := strings.Split(c.Components, ",")
+	if len(comps) == 0 || comps[0] == "" {
+		comps = []string{ical.CompEvent, ical.CompToDo, ical.CompJournal}
+	}
 	return &caldav.Calendar{
 		Path:                  p,
 		Name:                  c.DisplayName,
 		Description:           c.Description,
-		SupportedComponentSet: []string{ical.CompEvent, ical.CompToDo, ical.CompJournal},
+		SupportedComponentSet: comps,
 	}, nil
 }
 
@@ -162,25 +218,45 @@ func (b *davBackend) DeleteCalendar(ctx context.Context, p string) error {
 }
 
 // teamItems returns the resources visible in a calendar: VEVENT for both
-// calendars, plus the member's personal VTODO in the self calendar.
+// calendars, plus the VTODO in the matching calendar scope.
 func (b *davBackend) teamItems(ctx context.Context, cal string) (evs []models.CalendarEvent, todos []models.Todo, err error) {
 	s := b.session(ctx)
+	// Each chain gets a fresh scoped session: GORM shares the underlying
+	// statement (clone==0) and reusing one handle across chains merges WHERE
+	// conditions, which corrupts subsequent queries.
+	sc := func() *gorm.DB { return middlewareScopedDB(b.app.DB, s.Team.ID) }
 	switch {
 	case cal == calSelf:
-		if err = middleware.ScopedDB(b.app.DB, s.Team.ID).
+		if err = sc().
 			Where("user_id = ? AND visibility = ?", s.User.ID, models.VisibilityPrivate).
 			Order("starts_at").Find(&evs).Error; err != nil {
 			return nil, nil, err
 		}
-		if err = middleware.ScopedDB(b.app.DB, s.Team.ID).
-			Where("user_id = ?", s.User.ID).
+		if err = sc().
+			Where("user_id = ? AND calendar = ?", s.User.ID, calSelf).
+			Order("created_at").Find(&todos).Error; err != nil {
+			return nil, nil, err
+		}
+	case cal == calTeam:
+		if err = sc().
+			Where("calendar = ?", calTeam).
+			Order("starts_at").Find(&evs).Error; err != nil {
+			return nil, nil, err
+		}
+		if err = sc().
+			Where("calendar = ?", calTeam).
 			Order("created_at").Find(&todos).Error; err != nil {
 			return nil, nil, err
 		}
 	default:
-		if err = middleware.ScopedDB(b.app.DB, s.Team.ID).
+		if err = sc().
 			Where("calendar = ?", cal).
 			Order("starts_at").Find(&evs).Error; err != nil {
+			return nil, nil, err
+		}
+		if err = sc().
+			Where("calendar = ?", cal).
+			Order("created_at").Find(&todos).Error; err != nil {
 			return nil, nil, err
 		}
 	}
@@ -347,7 +423,8 @@ func (b *davBackend) expandTodoObject(ctx context.Context, t *models.Todo, cal s
 
 // bundleEvents groups events by UID and returns one CalendarObject per UID
 // (master + exceptions merged into a single .ics resource).
-func (b *davBackend) bundleEvents(ctx context.Context, evs []models.CalendarEvent, cal string) (map[string]*caldav.CalendarObject, error) {	byUID := map[string][]models.CalendarEvent{}
+func (b *davBackend) bundleEvents(ctx context.Context, evs []models.CalendarEvent, cal string) (map[string]*caldav.CalendarObject, error) {
+	byUID := map[string][]models.CalendarEvent{}
 	for i := range evs {
 		ev := evs[i]
 		byUID[ev.UID] = append(byUID[ev.UID], ev)
@@ -814,11 +891,34 @@ func inRange(ev *models.CalendarEvent, start, end time.Time) bool {
 func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.Calendar, opts *caldav.PutCalendarObjectOptions) (*caldav.CalendarObject, error) {
 	s := b.session(ctx)
 	calName := calNameFromPath(p)
-	if pt, err := ParseTodo(cal); err == nil {
-		return b.putTodo(ctx, p, calName, pt)
+	switch comp := componentOf(cal); comp {
+	case ical.CompToDo:
+		if !b.supportsComponent(ctx, calName, ical.CompToDo) {
+			return nil, caldav.NewPreconditionError(caldav.PreconditionSupportedCalendarComponent)
+		}
+		pt, err := ParseTodo(cal)
+		if err != nil {
+			return nil, err
+		}
+		co, err := b.putTodo(ctx, p, calName, pt)
+		if err != nil {
+			return nil, err
+		}
+		_, _ = syncLogChange(b.app.DB, s.Team.ID, calName, p, co.ETag, false)
+		return co, nil
+	case ical.CompJournal:
+		if !b.supportsComponent(ctx, calName, ical.CompJournal) {
+			return nil, caldav.NewPreconditionError(caldav.PreconditionSupportedCalendarComponent)
+		}
+		if journals := ParseJournals(cal); len(journals) > 0 {
+			return b.putJournal(ctx, p, calName, journals)
+		}
+		return nil, errors.New("无效的 VJOURNAL 数据")
+	case ical.CompFreeBusy:
+		return nil, caldav.NewPreconditionError(caldav.PreconditionSupportedCalendarComponent)
 	}
-	if journals := ParseJournals(cal); len(journals) > 0 {
-		return b.putJournal(ctx, p, calName, journals)
+	if !b.supportsComponent(ctx, calName, ical.CompEvent) {
+		return nil, caldav.NewPreconditionError(caldav.PreconditionSupportedCalendarComponent)
 	}
 	parsed := ParseEvents(cal)
 	if len(parsed) == 0 {
@@ -954,16 +1054,21 @@ func (b *davBackend) PutCalendarObject(ctx context.Context, p string, cal *ical.
 }
 
 // putTodo stores a VTODO written by an external CalDAV client (tasks.org,
-// Apple Reminders, ...). Todos are always personal and owned by the caller.
+// Apple Reminders, ...). Personal todos go into the self calendar; team and
+// custom calendar todos are visible to all team members.
 func (b *davBackend) putTodo(ctx context.Context, p, calName string, pt *parsedTodo) (*caldav.CalendarObject, error) {
 	s := b.session(ctx)
 	if pt.UID == "" || pt.Title == "" {
 		return nil, errors.New("无效的 VTODO 数据")
 	}
-	db := middleware.ScopedDB(b.app.DB, s.Team.ID)
+	// Each chain gets a fresh scoped session: GORM shares the underlying
+	// statement (clone==0) and reusing one handle across chains merges WHERE
+	// conditions, which corrupts subsequent writes (e.g. Create inheriting a
+	// prior WHERE returns ErrRecordNotFound).
+	sc := func() *gorm.DB { return middlewareScopedDB(b.app.DB, s.Team.ID) }
 	var t models.Todo
-	if err := db.Where("uid = ?", pt.UID).First(&t).Error; err == nil {
-		if t.UserID != s.User.ID {
+	if err := sc().Where("uid = ? AND calendar = ?", pt.UID, calName).First(&t).Error; err == nil {
+		if calName == calSelf && t.UserID != s.User.ID {
 			return nil, errors.New("不能修改他人的待办")
 		}
 		t.Title = pt.Title
@@ -988,42 +1093,62 @@ func (b *davBackend) putTodo(ctx context.Context, p, calName string, pt *parsedT
 		} else {
 			t.Reminders = ""
 		}
+		t.Calendar = calName
 		t.UpdatedAt = time.Now()
-		if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Save(&t).Error; err != nil {
+		if err := sc().Save(&t).Error; err != nil {
 			return nil, fmt.Errorf("caldav save todo: %w", err)
 		}
+		recordTodoLog(sc(), s.Team.ID, s.User.ID, t.ID, "update", "")
 	} else {
+		uid := pt.UID
+		if uid == "" {
+			uid = "todo-" + uuid.Must(uuid.NewV7()).String()
+		}
 		t = models.Todo{
 			ID:          uuid.Must(uuid.NewV7()).String(),
 			TeamID:      s.Team.ID,
 			UserID:      s.User.ID,
-			UID:         pt.UID,
+			UID:         uid,
+			Calendar:    calName,
 			Title:       pt.Title,
 			Note:        pt.Note,
 			Location:    pt.Location,
 			URL:         pt.URL,
 			StartAt:     pt.StartsAt,
 			DueAt:       pt.DueAt,
-Completed:   pt.Completed,
-		Percent:     pt.Percent,
-		Priority:    pt.Priority,
-		RRule:       pt.RRule,
-		ExDate:      exDatesJoin(pt.ExDates),
-		Group:       pt.Group,
-		Tags:        tagsToCSV(pt.Tags),
-		ParentID:    pt.ParentUID,
-		CompletedAt: pt.CompletedAt,
-	}
+			Completed:   pt.Completed,
+			Percent:     pt.Percent,
+			Priority:    pt.Priority,
+			RRule:       pt.RRule,
+			ExDate:      exDatesJoin(pt.ExDates),
+			Group:       pt.Group,
+			Tags:        tagsToCSV(pt.Tags),
+			ParentID:    pt.ParentUID,
+			CompletedAt: pt.CompletedAt,
+		}
 		if len(pt.Reminders) > 0 {
 			if b, err := json.Marshal(pt.Reminders); err == nil {
 				t.Reminders = string(b)
 			}
 		}
-		if err := middleware.ScopedDB(b.app.DB, s.Team.ID).Create(&t).Error; err != nil {
+		if err := sc().Create(&t).Error; err != nil {
 			return nil, fmt.Errorf("caldav create todo: %w", err)
 		}
+		recordTodoLog(sc(), s.Team.ID, s.User.ID, t.ID, "create", "")
 	}
 	return b.toTodoObject(ctx, &t, calName)
+}
+
+// recordTodoLog appends a mutation to the team's todo audit trail.
+func recordTodoLog(db *gorm.DB, teamID, userID, todoID, action, details string) {
+	tl := models.TodoLog{
+		TeamID:  teamID,
+		TodoID:  todoID,
+		UserID:  userID,
+		Action:  action,
+		Details: details,
+	}
+	_ = db.Create(&tl).Error
 }
 
 // putJournal stores a VJOURNAL written by an external CalDAV client as a
@@ -1098,8 +1223,12 @@ func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
 	sc := func() *gorm.DB { return middlewareScopedDB(b.app.DB, s.Team.ID) }
 	for i := range todos {
 		if todoUID(&todos[i]) == uid {
-			err := sc().Where("uid = ?", uid).Delete(&models.Todo{}).Error
+			t := todos[i]
+			// Scope the delete by calendar so the same UID in another
+			// calendar (e.g. a custom task list) is untouched.
+			err := sc().Where("uid = ? AND calendar = ?", uid, t.Calendar).Delete(&models.Todo{}).Error
 			if err == nil {
+				recordTodoLog(sc(), s.Team.ID, s.User.ID, t.ID, "delete", "")
 				_, _ = syncLogChange(b.app.DB, s.Team.ID, cal, p, "", true)
 			}
 			return err

@@ -79,7 +79,8 @@ export interface Todo {
   title: string
   note: string
   completed: boolean
-  shared: boolean
+  calendar: string
+  shared?: boolean
   dueAt: string | null
   startAt: string | null
   rrule: string

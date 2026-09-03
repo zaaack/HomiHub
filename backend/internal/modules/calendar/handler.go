@@ -103,12 +103,12 @@ func normalize(input *eventInput) (time.Time, time.Time, bool) {
 
 type eventView struct {
 	models.CalendarEvent
-	Start     time.Time          `json:"start"`
-	End       time.Time          `json:"end"`
-	Single    bool               `json:"single"`
-	Source    string             `json:"source,omitempty"`
-	Reminders []models.Reminder  `json:"reminders"`
-	ExDates   []string           `json:"exdates"`
+	Start     time.Time         `json:"start"`
+	End       time.Time         `json:"end"`
+	Single    bool              `json:"single"`
+	Source    string            `json:"source,omitempty"`
+	Reminders []models.Reminder `json:"reminders"`
+	ExDates   []string          `json:"exdates"`
 }
 
 // exDatesJoinValEx joins RFC3339 strings with a comma for the ExDate column.
@@ -205,12 +205,12 @@ func (h *Handler) list(c *gin.Context) {
 	httpx.OK(c, view)
 }
 
-// personalTodoOccurrences expands the current user's dated todos into calendar
-// occurrences so they surface in the personal calendar.
+// personalTodoOccurrences expands the current user's personal dated todos into
+// calendar occurrences so they surface in the personal calendar.
 func (h *Handler) personalTodoOccurrences(c *gin.Context, from, to time.Time) []eventView {
 	cl := middleware.ClaimsOf(c)
 	var todos []models.Todo
-	if err := middleware.DB(c).Where("user_id = ? AND due_at IS NOT NULL", cl.UserID).Find(&todos).Error; err != nil {
+	if err := middleware.DB(c).Where("user_id = ? AND calendar = ? AND due_at IS NOT NULL", cl.UserID, calSelf).Find(&todos).Error; err != nil {
 		return nil
 	}
 	out := []eventView{}

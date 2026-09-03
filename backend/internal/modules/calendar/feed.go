@@ -45,7 +45,15 @@ func (h *Handler) feedAsTeam(c *gin.Context) {
 	cal := BuildCalendar(fam.Name, evs)
 	if scope == "self" {
 		var todos []models.Todo
-		if err := h.app.DB.Where("team_id = ? AND user_id = ?", fam.ID, fam.OwnerID).
+		if err := h.app.DB.Where("team_id = ? AND user_id = ? AND calendar = ?", fam.ID, fam.OwnerID, calSelf).
+			Order("due_at").Find(&todos).Error; err == nil {
+			for i := range todos {
+				cal.Children = append(cal.Children, todoComponent(&todos[i]))
+			}
+		}
+	} else {
+		var todos []models.Todo
+		if err := h.app.DB.Where("team_id = ? AND calendar = ?", fam.ID, calTeam).
 			Order("due_at").Find(&todos).Error; err == nil {
 			for i := range todos {
 				cal.Children = append(cal.Children, todoComponent(&todos[i]))
@@ -96,7 +104,15 @@ func (h *Handler) feedAsMember(c *gin.Context, email, calendarToken string) {
 	cal := BuildCalendar(fam.Name, evs)
 	if scope == "self" {
 		var todos []models.Todo
-		if err := h.app.DB.Where("team_id = ? AND user_id = ?", fam.ID, user.ID).
+		if err := h.app.DB.Where("team_id = ? AND user_id = ? AND calendar = ?", fam.ID, user.ID, calSelf).
+			Order("due_at").Find(&todos).Error; err == nil {
+			for i := range todos {
+				cal.Children = append(cal.Children, todoComponent(&todos[i]))
+			}
+		}
+	} else {
+		var todos []models.Todo
+		if err := h.app.DB.Where("team_id = ? AND calendar = ?", fam.ID, calTeam).
 			Order("due_at").Find(&todos).Error; err == nil {
 			for i := range todos {
 				cal.Children = append(cal.Children, todoComponent(&todos[i]))

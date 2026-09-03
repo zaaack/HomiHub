@@ -10,7 +10,7 @@ import (
 const (
 	VisibilityPrivate = 1 // Only owner
 	VisibilityBusy    = 2 // Others see busy, no details
-	VisibilityTeam  = 3 // Everyone (default)
+	VisibilityTeam    = 3 // Everyone (default)
 )
 
 // Scopes for the file library.
@@ -30,7 +30,7 @@ type Team struct {
 
 type User struct {
 	ID           string    `gorm:"primaryKey;size:36" json:"id"`
-	TeamID     string    `gorm:"size:36;index" json:"teamId"`
+	TeamID       string    `gorm:"size:36;index" json:"teamId"`
 	Email        string    `gorm:"size:255;uniqueIndex;not null" json:"email"`
 	PasswordHash string    `gorm:"size:255;not null" json:"-"`
 	Name         string    `gorm:"size:64;not null" json:"name"`
@@ -41,14 +41,14 @@ type User struct {
 
 // TeamMember is the multi-space membership join table.
 type TeamMember struct {
-	UserID   string `gorm:"primaryKey;size:36" json:"userId"`
+	UserID string `gorm:"primaryKey;size:36" json:"userId"`
 	TeamID string `gorm:"primaryKey;size:36" json:"teamId"`
-	Role     string `gorm:"size:16;default:child" json:"role"`
+	Role   string `gorm:"size:16;default:child" json:"role"`
 }
 
 type Token struct {
 	ID         string     `gorm:"primaryKey;size:36" json:"id"`
-	TeamID   string     `gorm:"size:36;index" json:"teamId"`
+	TeamID     string     `gorm:"size:36;index" json:"teamId"`
 	Kind       string     `gorm:"size:16;not null" json:"kind"`
 	SubjectID  string     `gorm:"size:36" json:"subjectId"`
 	Name       string     `gorm:"size:128" json:"name"`
@@ -64,7 +64,7 @@ type Token struct {
 
 type Invite struct {
 	ID        string     `gorm:"primaryKey;size:36" json:"id"`
-	TeamID  string     `gorm:"size:36;index" json:"teamId"`
+	TeamID    string     `gorm:"size:36;index" json:"teamId"`
 	TokenHash string     `gorm:"size:64;uniqueIndex;not null" json:"-"`
 	Role      string     `gorm:"size:16;default:child" json:"role"`
 	ExpiresAt time.Time  `json:"expiresAt"`
@@ -80,6 +80,7 @@ type Calendar struct {
 	DisplayName string    `gorm:"size:255" json:"displayName"`
 	Description string    `gorm:"size:2000" json:"description"`
 	Color       string    `gorm:"size:32" json:"color"`
+	Components  string    `gorm:"size:128" json:"components"` // "VEVENT,VTODO,VJOURNAL" etc.
 	OwnerID     string    `gorm:"size:36" json:"ownerId"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -90,26 +91,26 @@ type CalendarEvent struct {
 	TeamID        string     `gorm:"size:36;index" json:"teamId"`
 	UserID        string     `gorm:"size:36;index" json:"userId"`
 	UID           string     `gorm:"size:64;index" json:"uid"`
-	Calendar      string     `gorm:"size:64;default:team;index" json:"calendar"` // calendar name (self, team, or custom)
+	Calendar      string     `gorm:"size:64;default:team;index" json:"calendar"`  // calendar name (self, team, or custom)
 	ComponentType string     `gorm:"size:16;default:VEVENT" json:"componentType"` // VEVENT or VJOURNAL
-	Title       string     `gorm:"size:255;not null" json:"title"`
-	Category    string     `gorm:"size:16;not null" json:"category"`
-	Location    string     `gorm:"size:255" json:"location"`
-	Description string     `gorm:"size:2000" json:"description"`
-	Class       string     `gorm:"size:32" json:"-"`
-	Duration    string     `gorm:"size:64" json:"-"`
-	StartsAt    time.Time  `json:"startsAt"`
-	EndsAt      time.Time  `json:"endsAt"`
-	AllDay      bool       `json:"allDay"`
-	RRule       string     `gorm:"size:255" json:"rrule"`
-	ExDate      string     `gorm:"type:text" json:"-"`
-RecurrenceID *time.Time `json:"recurrenceId"`
-	RelatedTo    string     `gorm:"size:255" json:"relatedTo"`
-	Visibility   int        `gorm:"default:3" json:"visibility"`
-	Attendees   string     `gorm:"type:text" json:"-"`
-	Reminders   string     `gorm:"type:text" json:"-"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	Title         string     `gorm:"size:255;not null" json:"title"`
+	Category      string     `gorm:"size:16;not null" json:"category"`
+	Location      string     `gorm:"size:255" json:"location"`
+	Description   string     `gorm:"size:2000" json:"description"`
+	Class         string     `gorm:"size:32" json:"-"`
+	Duration      string     `gorm:"size:64" json:"-"`
+	StartsAt      time.Time  `json:"startsAt"`
+	EndsAt        time.Time  `json:"endsAt"`
+	AllDay        bool       `json:"allDay"`
+	RRule         string     `gorm:"size:255" json:"rrule"`
+	ExDate        string     `gorm:"type:text" json:"-"`
+	RecurrenceID  *time.Time `json:"recurrenceId"`
+	RelatedTo     string     `gorm:"size:255" json:"relatedTo"`
+	Visibility    int        `gorm:"default:3" json:"visibility"`
+	Attendees     string     `gorm:"type:text" json:"-"`
+	Reminders     string     `gorm:"type:text" json:"-"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
 }
 
 // ScheduleMessage is a raw iTIP message delivered to a user's schedule-inbox
@@ -142,12 +143,12 @@ type Reminder struct {
 
 // CalendarSyncLog tracks calendar mutations for RFC 6578 sync-collection.
 type CalendarSyncLog struct {
-	ID        int64     `gorm:"primaryKey;autoIncrement"`
-	TeamID    string    `gorm:"size:36;index:idx_cal_sync,priority:1"`
-	Calendar  string    `gorm:"size:64;index:idx_cal_sync,priority:2"` // "self", "team", or custom calendar name
+	ID        int64  `gorm:"primaryKey;autoIncrement"`
+	TeamID    string `gorm:"size:36;index:idx_cal_sync,priority:1"`
+	Calendar  string `gorm:"size:64;index:idx_cal_sync,priority:2"` // "self", "team", or custom calendar name
 	Seq       int64
-	Href      string    `gorm:"size:512"`
-	Etag      string    `gorm:"size:64"`
+	Href      string `gorm:"size:512"`
+	Etag      string `gorm:"size:64"`
 	Deleted   bool
 	CreatedAt time.Time
 }
@@ -217,7 +218,8 @@ func ExDateSplit(s string) []time.Time {
 	return out
 }
 
-// Todo is a personal task that surface in the self CalDAV calendar as VTODO.
+// Todo is a task that surfaces in a CalDAV calendar as VTODO: personal todos
+// in the self calendar, team-shared todos in the team calendar.
 type Todo struct {
 	ID          string     `gorm:"primaryKey;size:36" json:"id"`
 	TeamID      string     `gorm:"size:36;index" json:"teamId"`
@@ -226,6 +228,7 @@ type Todo struct {
 	Title       string     `gorm:"size:255;not null" json:"title"`
 	Note        string     `gorm:"size:2000" json:"note"`
 	Completed   bool       `json:"completed"`
+	Calendar    string     `gorm:"size:64;default:self;index" json:"calendar"` // "self" or "team"
 	Shared      bool       `gorm:"default:false" json:"shared"`
 	DueAt       *time.Time `json:"dueAt"`
 	RRule       string     `gorm:"size:255" json:"rrule"`
@@ -245,24 +248,36 @@ type Todo struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
+// TodoLog records every mutation to a todo (create/update/toggle/delete) for
+// the team's operation history. Details is a JSON string of changed fields.
+type TodoLog struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	TeamID    string    `gorm:"size:36;index" json:"teamId"`
+	TodoID    string    `gorm:"size:36;index" json:"todoId"`
+	UserID    string    `gorm:"size:36" json:"userId"`
+	Action    string    `gorm:"size:16" json:"action"` // create|update|toggle|delete
+	Details   string    `gorm:"type:text" json:"details"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 type File struct {
-	ID             string     `gorm:"primaryKey;size:36" json:"id"`
-	TeamID       string     `gorm:"size:36;index" json:"teamId"`
-	Scope          string     `gorm:"size:16;not null;default:public" json:"scope"`
-	OwnerID        string     `gorm:"size:36;index" json:"ownerId"`
-	Name           string     `gorm:"size:255;not null" json:"name"`
-	MimeType       string     `gorm:"size:128" json:"mimeType"`
-	Size           int64      `json:"size"`
-	FolderID       string     `gorm:"size:36;default:'';index" json:"folderId"`
-	DeadProps      string     `gorm:"type:text" json:"-"` // WebDAV dead properties (JSON)
-	DeletedAt      *time.Time `json:"deletedAt"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
+	ID        string     `gorm:"primaryKey;size:36" json:"id"`
+	TeamID    string     `gorm:"size:36;index" json:"teamId"`
+	Scope     string     `gorm:"size:16;not null;default:public" json:"scope"`
+	OwnerID   string     `gorm:"size:36;index" json:"ownerId"`
+	Name      string     `gorm:"size:255;not null" json:"name"`
+	MimeType  string     `gorm:"size:128" json:"mimeType"`
+	Size      int64      `json:"size"`
+	FolderID  string     `gorm:"size:36;default:'';index" json:"folderId"`
+	DeadProps string     `gorm:"type:text" json:"-"` // WebDAV dead properties (JSON)
+	DeletedAt *time.Time `json:"deletedAt"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
 type FileFolder struct {
 	ID        string     `gorm:"primaryKey;size:36" json:"id"`
-	TeamID  string     `gorm:"size:36;index" json:"teamId"`
+	TeamID    string     `gorm:"size:36;index" json:"teamId"`
 	Scope     string     `gorm:"size:16;not null;default:public" json:"scope"`
 	OwnerID   string     `gorm:"size:36;index" json:"ownerId"`
 	ParentID  string     `gorm:"size:36;default:'';index" json:"parentId"`

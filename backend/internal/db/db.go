@@ -36,7 +36,7 @@ func Open(cfg *config.Config) *gorm.DB {
 }
 
 func Migrate(conn *gorm.DB) error {
-	return conn.AutoMigrate(
+	if err := conn.AutoMigrate(
 		&models.Team{},
 		&models.User{},
 		&models.TeamMember{},
@@ -45,10 +45,17 @@ func Migrate(conn *gorm.DB) error {
 		&models.Calendar{},
 		&models.CalendarEvent{},
 		&models.Todo{},
+		&models.TodoLog{},
 		&models.CalendarSyncLog{},
 		&models.ScheduleMessage{},
 		&models.File{},
 		&models.FileFolder{},
 		&models.Setting{},
-	)
+	); err != nil {
+		return err
+	}
+	// Backfill: pre-existing shared todos belong to the team calendar.
+	return conn.Model(&models.Todo{}).
+		Where("shared = ? AND (calendar = ? OR calendar = '' OR calendar IS NULL)", true, "self").
+		Update("calendar", "team").Error
 }

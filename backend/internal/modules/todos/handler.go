@@ -9,12 +9,24 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/teambition/rrule-go"
+	"gorm.io/gorm"
 
 	"homihub/backend/internal/httpx"
 	"homihub/backend/internal/middleware"
 	"homihub/backend/internal/models"
 	"homihub/backend/internal/modules"
 )
+
+// recordTodoLog appends a mutation to the team's todo audit trail.
+func recordTodoLog(db *gorm.DB, teamID, userID, todoID, action, details string) {
+	_ = db.Create(&models.TodoLog{
+		TeamID:  teamID,
+		TodoID:  todoID,
+		UserID:  userID,
+		Action:  action,
+		Details: details,
+	}).Error
+}
 
 type Handler struct {
 	app *modules.App
@@ -61,11 +73,11 @@ func exDatesToStrs(ds []time.Time) []string {
 	return out
 }
 
-// list returns the current user's private todos plus todos shared to the family.
+// list returns the current user's personal todos plus team-shared todos.
 func (h *Handler) list(c *gin.Context) {
 	cl := middleware.ClaimsOf(c)
 	var todos []models.Todo
-	if err := middleware.DB(c).Where("user_id = ? OR shared = ?", cl.UserID, true).
+	if err := middleware.DB(c).Where("user_id = ? OR calendar = ?", cl.UserID, "team").
 		Order("completed, \"order\", created_at").Find(&todos).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "query_failed")
 		return
@@ -93,6 +105,7 @@ type todoInput struct {
 	ParentID  string            `json:"parentId"`
 	Order     int               `json:"order"`
 	Shared    *bool             `json:"shared"`
+	Calendar  string            `json:"calendar"` // "self" or "team"
 	Completed *bool             `json:"completed"`
 	Reminders []models.Reminder `json:"reminders"`
 }
@@ -179,6 +192,7 @@ func (h *Handler) create(c *gin.Context) {
 		UID:      "todo-" + uuid.Must(uuid.NewV7()).String(),
 		TeamID:   cl.TeamID,
 		UserID:   cl.UserID,
+		Calendar: "self",
 		Title:    in.Title,
 		Note:     in.Note,
 		RRule:    in.RRule,
@@ -192,6 +206,10 @@ func (h *Handler) create(c *gin.Context) {
 		ParentID: in.ParentID,
 		Order:    in.Order,
 	}
+	if in.Calendar == "team" {
+		todo.Calendar = "team"
+		todo.Shared = true
+	}
 	todo.StartAt, _ = parseOptTime(in.StartAt)
 	todo.DueAt, _ = parseOptTime(in.DueAt)
 	if len(in.Reminders) > 0 {
@@ -199,8 +217,9 @@ func (h *Handler) create(c *gin.Context) {
 			todo.Reminders = string(b)
 		}
 	}
-	if in.Shared != nil {
-		todo.Shared = *in.Shared
+	if in.Shared != nil && *in.Shared {
+		todo.Calendar = "team"
+		todo.Shared = true
 	}
 	if in.Completed != nil && *in.Completed {
 		todo.Completed = true
@@ -212,6 +231,7 @@ func (h *Handler) create(c *gin.Context) {
 		httpx.ErrT(c, http.StatusInternalServerError, "create_failed")
 		return
 	}
+	recordTodoLog(middleware.DB(c), cl.TeamID, cl.UserID, todo.ID, "create", "")
 	httpx.Created(c, toTodoView(todo))
 }
 
@@ -228,23 +248,23 @@ func (h *Handler) update(c *gin.Context) {
 		httpx.NotFoundT(c, "todo_not_found")
 		return
 	}
-	if existing.UserID != cl.UserID && !(existing.Shared && cl.Role == middleware.RoleParent) {
+	if existing.Calendar != "team" && existing.UserID != cl.UserID {
 		httpx.ForbiddenT(c, "forbidden")
 		return
 	}
 	updates := map[string]any{
-		"title":    in.Title,
-		"note":     in.Note,
-		"r_rule":   in.RRule,
-		"ex_date":  exDatesJoinVal(in.ExDates),
-		"group":    in.Group,
-		"tags":     in.Tags,
-		"priority": in.Priority,
-		"location": in.Location,
-		"url":      in.URL,
-		"percent":  in.Percent,
+		"title":     in.Title,
+		"note":      in.Note,
+		"r_rule":    in.RRule,
+		"ex_date":   exDatesJoinVal(in.ExDates),
+		"group":     in.Group,
+		"tags":      in.Tags,
+		"priority":  in.Priority,
+		"location":  in.Location,
+		"url":       in.URL,
+		"percent":   in.Percent,
 		"parent_id": in.ParentID,
-		"order":    in.Order,
+		"order":     in.Order,
 	}
 	if len(in.Reminders) > 0 {
 		if b, err := json.Marshal(in.Reminders); err == nil {
@@ -259,7 +279,18 @@ func (h *Handler) update(c *gin.Context) {
 	if du, ok := parseOptTime(in.DueAt); ok {
 		updates["due_at"] = du
 	}
-	if in.Shared != nil {
+	if in.Calendar == "team" {
+		updates["calendar"] = "team"
+		updates["shared"] = true
+	} else if in.Calendar == "self" {
+		updates["calendar"] = "self"
+		updates["shared"] = false
+	} else if in.Shared != nil {
+		if *in.Shared {
+			updates["calendar"] = "team"
+		} else {
+			updates["calendar"] = "self"
+		}
 		updates["shared"] = *in.Shared
 	}
 	if in.Completed != nil {
@@ -278,6 +309,7 @@ func (h *Handler) update(c *gin.Context) {
 	}
 	var todo models.Todo
 	middleware.DB(c).First(&todo, "id = ?", id)
+	recordTodoLog(middleware.DB(c), cl.TeamID, cl.UserID, id, "update", "")
 	httpx.OK(c, toTodoView(todo))
 }
 
@@ -288,7 +320,7 @@ func (h *Handler) toggle(c *gin.Context) {
 		httpx.NotFoundT(c, "todo_not_found")
 		return
 	}
-	if todo.UserID != cl.UserID && !(todo.Shared && cl.Role == middleware.RoleParent) {
+	if todo.Calendar != "team" && todo.UserID != cl.UserID {
 		httpx.ForbiddenT(c, "forbidden")
 		return
 	}
@@ -305,6 +337,7 @@ func (h *Handler) toggle(c *gin.Context) {
 		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")
 		return
 	}
+	recordTodoLog(middleware.DB(c), cl.TeamID, cl.UserID, todo.ID, "toggle", "")
 	var updated models.Todo
 	middleware.DB(c).First(&updated, "id = ?", c.Param("id"))
 	httpx.OK(c, toTodoView(updated))
@@ -318,7 +351,7 @@ func (h *Handler) delete(c *gin.Context) {
 		httpx.NotFoundT(c, "todo_not_found")
 		return
 	}
-	if todo.UserID != cl.UserID && !(todo.Shared && cl.Role == middleware.RoleParent) {
+	if todo.Calendar != "team" && todo.UserID != cl.UserID {
 		httpx.ForbiddenT(c, "forbidden")
 		return
 	}
@@ -326,5 +359,6 @@ func (h *Handler) delete(c *gin.Context) {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")
 		return
 	}
+	recordTodoLog(middleware.DB(c), cl.TeamID, cl.UserID, id, "delete", "")
 	httpx.OK(c, gin.H{"ok": true})
 }

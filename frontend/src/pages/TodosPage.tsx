@@ -297,7 +297,7 @@ export default function TodosPage() {
         url: editing.url,
         percent: editing.percent,
         parentId: editing.parentId,
-        shared: editing.shared,
+        calendar: editing.shared ? 'team' : 'self',
         reminders: editing.reminders,
         exdates: editing.exdates,
       }
@@ -320,7 +320,7 @@ export default function TodosPage() {
       note: todo.note,
       dueAt: fmtLocal(todo.dueAt),
       startAt: fmtLocal(todo.startAt),
-      shared: todo.shared,
+      shared: todo.calendar === 'team',
       repeat: parseRRule(todo.rrule),
       group: todo.group,
       tags: todo.tags,
@@ -806,7 +806,7 @@ function TodoRow({
           {prio && <Flag size={13} className={`shrink-0 ${priorityColor(todo.priority)}`} />}
           <span className={`truncate ${todo.completed ? 'text-[var(--app-faint)] line-through' : ''}`}>{todo.title}</span>
         </div>
-        {(todo.dueAt || todo.shared || todo.rrule || todo.group || todo.reminders?.length) && (
+        {(todo.dueAt || todo.calendar === 'team' || todo.rrule || todo.group || todo.reminders?.length) && (
           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
             {todo.dueAt && (
               <span className={`flex items-center gap-1 ${overdue ? 'font-medium text-[var(--app-danger)]' : ''}`}>
@@ -828,7 +828,7 @@ function TodoRow({
                 {todo.reminders.length}
               </span>
             )}
-            {todo.shared && (
+            {todo.calendar === 'team' && (
               <span className="flex items-center gap-1">
                 <Users size={12} />
                 {t('todos.shared')}
