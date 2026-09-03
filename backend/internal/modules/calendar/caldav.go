@@ -1,16 +1,19 @@
 package modulecalendar
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
 	"path"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -1396,9 +1399,9 @@ func (h *Handler) RegisterDAV(r *gin.RouterGroup, files http.Handler) {
 	auth := h.davAuth()
 	mux := &davMux{caldav: &syncDAVHandler{inner: dh, b: calBackend}, files: files}
 	davMethods := []string{"GET", "HEAD", "PUT", "DELETE", "OPTIONS", "POST", "PROPFIND", "PROPPATCH", "REPORT", "COPY", "MOVE", "MKCOL", "MKCALENDAR", "LOCK", "UNLOCK"}
-	r.Match(davMethods, "/.well-known/caldav", auth, gin.WrapH(dh))
-	r.Match(davMethods, "/dav", auth, gin.WrapH(mux))
-	r.Match(davMethods, "/dav/*dav", auth, gin.WrapH(mux))
+	r.Match(davMethods, "/.well-known/caldav", auth, gin.WrapH(davRequestLog(dh)))
+	r.Match(davMethods, "/dav", auth, gin.WrapH(davRequestLog(mux)))
+	r.Match(davMethods, "/dav/*dav", auth, gin.WrapH(davRequestLog(mux)))
 }
 
 type davMux struct {
@@ -1416,4 +1419,42 @@ func (m *davMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.caldav.ServeHTTP(w, r)
+}
+
+// davRequestLog wraps a handler and logs every DAV request (method, path,
+// body, response status) to stdout for debugging client interoperability.
+func davRequestLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body []byte
+		if r.Body != nil {
+			body, _ = io.ReadAll(r.Body)
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		sw := &statusWriter{ResponseWriter: w}
+		defer func() {
+			if rec := recover(); rec != nil {
+				fmt.Printf("[dav] %s %s PANIC=%v body=%s\n%s\n", r.Method, r.URL.Path, rec, string(body), debug.Stack())
+				panic(rec)
+			}
+			fmt.Printf("[dav] %s %s status=%d body=%s\n", r.Method, r.URL.Path, sw.status, string(body))
+		}()
+		next.ServeHTTP(sw, r)
+	})
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
 }
