@@ -345,9 +345,37 @@ type File struct {
 	Size      int64      `json:"size"`
 	FolderID  string     `gorm:"size:36;default:'';index" json:"folderId"`
 	DeadProps string     `gorm:"type:text" json:"-"` // WebDAV dead properties (JSON)
-	DeletedAt *time.Time `json:"deletedAt"`
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt time.Time  `json:"updatedAt"`
+	// AttachmentOf links a file to a calendar/todo item when set ("" = a plain
+	// file). Attachment files stay visible over WebDAV but are hidden from the
+	// Files page root listing; see models.Attachment.
+	AttachmentOf string     `gorm:"size:36;default:'';index" json:"attachmentOf"`
+	DeletedAt    *time.Time `json:"deletedAt"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
+}
+
+// Attachment links an uploaded File to an event / todo / note item (Kind is
+// "event" | "todo" | "note" and ItemID is the row id). The content itself
+// lives in the File row so attachments are URL-accessible and show up on the
+// WebDAV mount of the team/personal directory.
+type Attachment struct {
+	ID         string    `gorm:"primaryKey;size:36" json:"id"`
+	TeamID     string    `gorm:"size:36;index:idx_att_item" json:"teamId"`
+	Kind       string    `gorm:"size:16;index:idx_att_item" json:"kind"` // event | todo | note
+	ItemID     string    `gorm:"size:36;index:idx_att_item" json:"itemId"`
+	FileID     string    `gorm:"size:36;index" json:"fileId"`
+	UserID     string    `gorm:"size:36;index" json:"userId"`
+	Scope      string    `gorm:"size:16" json:"scope"` // personal | public
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+// AttachmentView adds the underlying file fields and content URL.
+type AttachmentView struct {
+	Attachment
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType"`
+	Size     int64  `json:"size"`
+	URL      string `json:"url"`
 }
 
 type FileFolder struct {

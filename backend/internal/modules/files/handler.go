@@ -78,7 +78,7 @@ func (h *Handler) list(c *gin.Context) {
 	scope := c.DefaultQuery("scope", models.ScopePublic)
 	folderID := c.Query("folderId")
 	var files []models.File
-	q := middleware.DB(c).Where("scope = ? AND deleted_at IS NULL", scope)
+	q := middleware.DB(c).Where("scope = ? AND deleted_at IS NULL AND attachment_of = ''", scope)
 	if folderID == "" {
 		q = q.Where("folder_id = ''")
 	} else {

@@ -51,6 +51,7 @@ func Migrate(conn *gorm.DB) error {
 		&models.ScheduleMessage{},
 		&models.File{},
 		&models.FileFolder{},
+		&models.Attachment{},
 		&models.Setting{},
 	); err != nil {
 		return err
