@@ -103,6 +103,8 @@
     "catFamily": "Family",
     "empty": "No events this day",
     "sourceTodo": "Todo",
+    "filterCal": "Calendars",
+    "noCals": "No calendars this month",
     "self": "Personal calendar",
     "teamCal": "Team calendar",
     "everyDay": "Every day",

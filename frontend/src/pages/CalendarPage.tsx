@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Bell, ChevronLeft, ChevronRight, Plus, Users, X, Trash2 } from 'lucide-react'
+import { Bell, ChevronLeft, ChevronRight, Plus, Users, X, Trash2, SlidersHorizontal } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../store/auth'
 import AttachmentField from '../components/AttachmentField'
@@ -150,7 +150,17 @@ export default function CalendarPage() {
   const [editing, setEditing] = useState<FormState | null>(null)
   const [busy, setBusy] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
-  const [calFilter, setCalFilter] = useState<string[]>([])
+  const [calFilter, setCalFilter] = useState<string[]>(['self', 'team'])
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
 
   const range = useMemo(() => {
     const from = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
@@ -389,22 +399,41 @@ export default function CalendarPage() {
           <button className="btn-ghost" onClick={() => setCursor(startOfDay(new Date()))}>
             {t('calendar.today')}
           </button>
-          {calOptions.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1">
-              {calOptions.map((c) => (
+          <div className="relative" ref={menuRef}>
+            <button className="btn-ghost" onClick={() => setMenuOpen((v) => !v)} title={t('calendar.filterCal')}>
+              <SlidersHorizontal size={16} />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-[var(--app-border)] bg-[var(--app-card)] p-3 shadow-lg">
+                <div className="mb-2 text-xs font-semibold text-[var(--app-muted)]">{t('calendar.filterCal')}</div>
+                {calOptions.length === 0 ? (
+                  <div className="text-xs text-[var(--app-faint)]">{t('calendar.noCals')}</div>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {calOptions.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => toggleCal(c)}
+                        className={`rounded-full px-2 py-1 text-xs ${calFilter.includes(c) ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--app-card-sub)] text-[var(--app-muted)] hover:bg-[var(--app-accent-soft)]'}`}
+                      >
+                        {calLabel(c)}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
-                  key={c}
-                  onClick={() => toggleCal(c)}
-                  className={`rounded-full px-2 py-1 text-xs ${calFilter.includes(c) ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--app-card-sub)] text-[var(--app-muted)] hover:bg-[var(--app-accent-soft)]'}`}
+                  className="mt-3 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-[var(--app-muted)] hover:bg-[var(--app-card-sub)]"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setTrashOpen(true)
+                  }}
                 >
-                  {calLabel(c)}
+                  <Trash2 size={15} />
+                  {t('trash.itemsTitle')}
                 </button>
-              ))}
-            </div>
-          )}
-          <button className="btn-ghost" onClick={() => setTrashOpen(true)} title={t('trash.itemsTitle')}>
-            <Trash2 size={16} />
-          </button>
+              </div>
+            )}
+          </div>
         </div>
         <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-border)]">
           {weekdays.map((d) => (

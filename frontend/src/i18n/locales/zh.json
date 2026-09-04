@@ -103,6 +103,8 @@
     "catFamily": "家庭",
     "empty": "这一天没有事件",
     "sourceTodo": "待办",
+    "filterCal": "日历筛选",
+    "noCals": "本月没有日历",
     "self": "个人日历",
     "teamCal": "团队日历",
     "everyDay": "每天",
