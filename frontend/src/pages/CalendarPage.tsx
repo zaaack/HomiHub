@@ -150,6 +150,7 @@ export default function CalendarPage() {
   const [editing, setEditing] = useState<FormState | null>(null)
   const [busy, setBusy] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
+  const [calFilter, setCalFilter] = useState<string[]>([])
 
   const range = useMemo(() => {
     const from = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
@@ -197,6 +198,7 @@ export default function CalendarPage() {
   const eventsByDay = useMemo(() => {
     const m = new Map<string, CalendarEvent[]>()
     for (const ev of events) {
+      if (calFilter.length > 0 && !calFilter.includes(ev.calendar)) continue
       const d = startOfDay(new Date(ev.start))
       const k = d.toDateString()
       if (!m.has(k)) m.set(k, [])
@@ -206,7 +208,23 @@ export default function CalendarPage() {
       list.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
     }
     return m
+  }, [events, calFilter])
+
+  const calOptions = useMemo(() => {
+    const s = new Set(events.map((ev) => ev.calendar || ''))
+    s.delete('')
+    return [...s].sort()
   }, [events])
+
+  const toggleCal = (name: string) => {
+    setCalFilter((prev) => (prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]))
+  }
+
+  const calLabel = (name: string): string => {
+    if (name === 'self') return t('calendar.self')
+    if (name === 'team') return t('calendar.teamCal')
+    return name
+  }
 
   const selectedEvents = eventsByDay.get(selected.toDateString()) ?? []
 
@@ -371,6 +389,19 @@ export default function CalendarPage() {
           <button className="btn-ghost" onClick={() => setCursor(startOfDay(new Date()))}>
             {t('calendar.today')}
           </button>
+          {calOptions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              {calOptions.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => toggleCal(c)}
+                  className={`rounded-full px-2 py-1 text-xs ${calFilter.includes(c) ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--app-card-sub)] text-[var(--app-muted)] hover:bg-[var(--app-accent-soft)]'}`}
+                >
+                  {calLabel(c)}
+                </button>
+              ))}
+            </div>
+          )}
           <button className="btn-ghost" onClick={() => setTrashOpen(true)} title={t('trash.itemsTitle')}>
             <Trash2 size={16} />
           </button>

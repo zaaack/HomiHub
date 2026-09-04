@@ -61,6 +61,7 @@ export interface CalendarEvent {
   teamId: string
   userId: string
   uid: string
+  calendar: string
   title: string
   category: string
   location: string
