@@ -275,7 +275,7 @@ func (h *Handler) deleteList(c *gin.Context) {
 	for i := range notes {
 		_ = attachments.DeleteForItem(h.app.DB, cl.TeamID, notes[i].ID)
 	}
-	if err := h.scoped(cl.TeamID).Where("calendar = ?", id).Delete(&models.CalendarEvent{}).Error; err != nil {
+	if err := h.scoped(cl.TeamID).Unscoped().Where("calendar = ?", id).Delete(&models.CalendarEvent{}).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")
 		return
 	}

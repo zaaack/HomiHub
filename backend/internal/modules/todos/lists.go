@@ -291,7 +291,7 @@ func (h *Handler) deleteTodoList(c *gin.Context) {
 		recordTodoLog(h.scoped(cl.TeamID), cl.TeamID, cl.UserID, todos[i].ID, "delete", "")
 		_ = attachments.DeleteForItem(h.app.DB, cl.TeamID, todos[i].ID)
 	}
-	if err := h.scoped(cl.TeamID).Where("calendar = ?", id).Delete(&models.Todo{}).Error; err != nil {
+	if err := h.scoped(cl.TeamID).Unscoped().Where("calendar = ?", id).Delete(&models.Todo{}).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")
 		return
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/teambition/rrule-go"
 	"gorm.io/gorm"
 
-	"homihub/backend/internal/attachments"
 	"homihub/backend/internal/httpx"
 	"homihub/backend/internal/middleware"
 	"homihub/backend/internal/models"
@@ -441,6 +440,8 @@ func (h *Handler) delete(c *gin.Context) {
 		httpx.ForbiddenT(c, "delete_own_only")
 		return
 	}
+	// Soft delete: the row keeps a deleted_at marker and lives in the items
+	// trash until purged. Invitee copies are soft-deleted in cascade.
 	if err := middleware.DB(c).Where("id = ?", id).Delete(&models.CalendarEvent{}).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "delete_failed")
 		return
@@ -451,9 +452,8 @@ func (h *Handler) delete(c *gin.Context) {
 		for _, a := range prev {
 			ids = append(ids, a.ID)
 		}
-		_ = DeleteEventInviteeCopies(middleware.DB(c), ev.UID, ids)
+		_ = SoftDeleteEventInviteeCopies(middleware.DB(c), ev.UID, ids)
 	}
-	_ = attachments.DeleteForItem(h.app.DB, cl.TeamID, ev.ID)
 	h.recordEventSync(&ev, true)
 	httpx.OK(c, gin.H{"ok": true})
 }

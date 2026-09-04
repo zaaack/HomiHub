@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // Visibility constants for calendar events.
@@ -135,10 +137,11 @@ type CalendarEvent struct {
 	RelatedTo     string     `gorm:"size:255" json:"relatedTo"`
 	Visibility    int        `gorm:"default:3" json:"visibility"`
 	Attendees     string     `gorm:"type:text" json:"-"`
-	Reminders     string     `gorm:"type:text" json:"-"`
-	Tags          string     `gorm:"size:500" json:"tags"` // VJOURNAL notes: comma-separated tags (CATEGORIES)
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `json:"updatedAt"`
+	Reminders     string        `gorm:"type:text" json:"-"`
+	Tags          string        `gorm:"size:500" json:"tags"` // VJOURNAL notes: comma-separated tags (CATEGORIES)
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"deletedAt"`
+	CreatedAt     time.Time     `json:"createdAt"`
+	UpdatedAt     time.Time     `json:"updatedAt"`
 }
 
 // ScheduleMessage is a raw iTIP message delivered to a user's schedule-inbox
@@ -317,10 +320,11 @@ type Todo struct {
 	CompletedAt *time.Time `json:"completedAt"`
 	ParentID    string     `gorm:"size:36;index" json:"parentId"`
 	Order       int        `gorm:"default:0" json:"order"`
-	Reminders   string     `gorm:"type:text" json:"-"`
-	Attendees   string     `gorm:"type:text" json:"-"` // invited members (JSON), exported as ATTENDEE in VTODO
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	Reminders   string        `gorm:"type:text" json:"-"`
+	Attendees   string        `gorm:"type:text" json:"-"` // invited members (JSON), exported as ATTENDEE in VTODO
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deletedAt"`
+	CreatedAt   time.Time     `json:"createdAt"`
+	UpdatedAt   time.Time     `json:"updatedAt"`
 }
 
 // TodoLog records every mutation to a todo (create/update/toggle/delete) for

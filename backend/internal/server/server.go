@@ -17,6 +17,7 @@ import (
 	modulefiles "homihub/backend/internal/modules/files"
 	modulesettings "homihub/backend/internal/modules/settings"
 	moduletodos "homihub/backend/internal/modules/todos"
+	moduletrash "homihub/backend/internal/modules/trash"
 	"gorm.io/gorm"
 )
 
@@ -52,20 +53,23 @@ func New(cfg *config.Config, database *gorm.DB, staticFS http.FileSystem) *gin.E
 	calMod := &modulecalendar.Handler{}
 	filesMod := &modulefiles.Handler{}
 	settingsMod := &modulesettings.Handler{}
+	trashMod := &moduletrash.Handler{}
 	if err := modules.Mount(app, map[string]*gin.RouterGroup{
 		"auth":     api,
-		"team":   api,
+		"team":     api,
 		"calendar": api,
 		"todos":    api,
 		"notes":    api,
 		"files":    api,
 		"settings": api,
+		"trash":    api,
 	}, &moduleauth.Handler{}, &moduleteam.Handler{}, calMod,
-		&moduletodos.Handler{}, &modulenotes.Handler{}, filesMod, settingsMod); err != nil {
+		&moduletodos.Handler{}, &modulenotes.Handler{}, filesMod, settingsMod, trashMod); err != nil {
 		panic(err)
 	}
 	settingsMod.SetCORSProvider(cors)
 	filesMod.StartTrashCleaner()
+	trashMod.StartTrashCleaner()
 
 	calMod.RegisterDAV(r.Group(""), filesMod.DAVHandler())
 

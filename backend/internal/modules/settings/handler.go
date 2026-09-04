@@ -15,10 +15,15 @@ import (
 
 const SettingKeyCORSOrigins = "cors_origins"
 const SettingKeyTrashRetentionDays = "trash_retention_days"
+const SettingKeyTrashItemsRetentionDays = "trash_items_retention_days"
 
 // DefaultTrashRetentionDays keeps deleted files in the trash this long (days).
 // A value of 0 disables automatic purging (keep forever).
 const DefaultTrashRetentionDays = 90
+
+// DefaultTrashItemsRetentionDays keeps deleted calendar items / todos / notes
+// in the trash this long (days). Configured independently from files.
+const DefaultTrashItemsRetentionDays = 90
 
 type Handler struct {
 	app  *modules.App
@@ -44,6 +49,8 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 	g.PUT("/settings/cors", auth, middleware.RequireParent(), h.putCORS)
 	g.GET("/settings/trash", auth, middleware.RequireParent(), h.getTrash)
 	g.PUT("/settings/trash", auth, middleware.RequireParent(), h.putTrash)
+	g.GET("/settings/trash-items", auth, middleware.RequireParent(), h.getTrashItems)
+	g.PUT("/settings/trash-items", auth, middleware.RequireParent(), h.putTrashItems)
 }
 
 func (h *Handler) getCORS(c *gin.Context) {
@@ -102,6 +109,42 @@ func (h *Handler) putTrash(c *gin.Context) {
 		return
 	}
 	if err := h.app.DB.Save(&models.Setting{Key: SettingKeyTrashRetentionDays, Value: strconv.Itoa(in.Days)}).Error; err != nil {
+		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")
+		return
+	}
+	httpx.OK(c, gin.H{"days": in.Days})
+}
+
+// TrashItemsRetentionDays returns the configured items trash retention in
+// days. 0 means deleted items are kept forever (no automatic purge).
+func TrashItemsRetentionDays(db *gorm.DB) int {
+	var s models.Setting
+	if err := db.Where("key = ?", SettingKeyTrashItemsRetentionDays).First(&s).Error; err != nil {
+		return DefaultTrashItemsRetentionDays
+	}
+	days, err := strconv.Atoi(s.Value)
+	if err != nil || days < 0 {
+		return DefaultTrashItemsRetentionDays
+	}
+	return days
+}
+
+func (h *Handler) getTrashItems(c *gin.Context) {
+	httpx.OK(c, gin.H{"days": TrashItemsRetentionDays(h.app.DB)})
+}
+
+func (h *Handler) putTrashItems(c *gin.Context) {
+	var in struct {
+		Days int `json:"days"`
+	}
+	if !httpx.Bind(c, &in) {
+		return
+	}
+	if in.Days < 0 {
+		httpx.BadRequestT(c, "bad_request")
+		return
+	}
+	if err := h.app.DB.Save(&models.Setting{Key: SettingKeyTrashItemsRetentionDays, Value: strconv.Itoa(in.Days)}).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")
 		return
 	}

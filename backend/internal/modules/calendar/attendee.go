@@ -214,9 +214,19 @@ func UpsertEventInviteeCopy(base *gorm.DB, teamID string, org *models.CalendarEv
 	return sc().Save(&row).Error
 }
 
-// DeleteEventInviteeCopies removes invitee personal copies (master + any
-// exception rows share the same UID) when they are no longer invited.
+// DeleteEventInviteeCopies permanently removes invitee personal copies (master
+// + any exception rows share the same UID) when they are no longer invited.
 func DeleteEventInviteeCopies(db *gorm.DB, uid string, userIDs []string) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
+	return db.Unscoped().Where("uid = ? AND calendar = ? AND user_id IN ?", uid, calSelf, userIDs).
+		Delete(&models.CalendarEvent{}).Error
+}
+
+// SoftDeleteEventInviteeCopies soft-deletes invitee personal copies (same UID)
+// when the organizer's event/note is deleted, so they travel to the trash too.
+func SoftDeleteEventInviteeCopies(db *gorm.DB, uid string, userIDs []string) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
@@ -268,12 +278,53 @@ func UpsertTodoInviteeCopy(base *gorm.DB, teamID string, org *models.Todo, u *mo
 	return sc().Save(&row).Error
 }
 
-// DeleteTodoInviteeCopies removes the invitee personal copies.
+// DeleteTodoInviteeCopies permanently removes the invitee personal copies.
 func DeleteTodoInviteeCopies(db *gorm.DB, uid string, userIDs []string) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
+	return db.Unscoped().Where("uid = ? AND calendar = ? AND user_id IN ?", uid, calSelf, userIDs).
+		Delete(&models.Todo{}).Error
+}
+
+// SoftDeleteTodoInviteeCopies soft-deletes the invitee personal copies so they
+// travel to the trash alongside the organizer's deleted todo.
+func SoftDeleteTodoInviteeCopies(db *gorm.DB, uid string, userIDs []string) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
 	return db.Where("uid = ? AND calendar = ? AND user_id IN ?", uid, calSelf, userIDs).
+		Delete(&models.Todo{}).Error
+}
+
+// RestoreEventInviteeCopies clears deleted_at on the soft-deleted invitee
+// personal copies sharing the same UID (used when restoring a trashed event).
+func RestoreEventInviteeCopies(db *gorm.DB, uid string) error {
+	return db.Unscoped().Model(&models.CalendarEvent{}).
+		Where("uid = ? AND calendar = ?", uid, calSelf).
+		Updates(map[string]any{"deleted_at": nil}).Error
+}
+
+// RestoreTodoInviteeCopies clears deleted_at on the soft-deleted invitee
+// personal copies sharing the same UID (used when restoring a trashed todo).
+func RestoreTodoInviteeCopies(db *gorm.DB, uid string) error {
+	return db.Unscoped().Model(&models.Todo{}).
+		Where("uid = ? AND calendar = ?", uid, calSelf).
+		Updates(map[string]any{"deleted_at": nil}).Error
+}
+
+// PurgeEventInviteeCopies permanently removes the soft-deleted invitee
+// personal copies sharing the UID when a trashed event is purged. Live rows
+// (e.g. recurring exceptions) are left untouched.
+func PurgeEventInviteeCopies(db *gorm.DB, uid string) error {
+	return db.Unscoped().Where("uid = ? AND calendar = ? AND deleted_at IS NOT NULL", uid, calSelf).
+		Delete(&models.CalendarEvent{}).Error
+}
+
+// PurgeTodoInviteeCopies permanently removes the soft-deleted invitee personal
+// copies sharing the UID when a trashed todo is purged.
+func PurgeTodoInviteeCopies(db *gorm.DB, uid string) error {
+	return db.Unscoped().Where("uid = ? AND calendar = ? AND deleted_at IS NOT NULL", uid, calSelf).
 		Delete(&models.Todo{}).Error
 }
 

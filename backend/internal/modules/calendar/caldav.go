@@ -378,7 +378,9 @@ func (b *davBackend) DeleteCalendar(ctx context.Context, p string) error {
 				_ = attachments.DeleteForItem(b.app.DB, b.session(ctx).Team.ID, evs[i].ID)
 			}
 		}
-		err = sc().Where("calendar = ?", cal).Delete(&models.CalendarEvent{}).Error
+		// Hard-delete the whole calendar's objects (the calendar row itself is
+		// also removed, so its items must not linger in the items trash).
+		err = sc().Unscoped().Where("calendar = ?", cal).Delete(&models.CalendarEvent{}).Error
 	}
 	return err
 }
@@ -534,6 +536,26 @@ func LogCalendarObjectSync(base *gorm.DB, teamID string, ev *models.CalendarEven
 	if !deleted {
 		sum := sha256.Sum256([]byte(ev.UID + ev.Title + ev.Description + ev.Tags + ev.StartsAt.String() + ev.UpdatedAt.String()))
 		etag = hex.EncodeToString(sum[:8])
+	}
+	_, _ = syncLogChange(base, teamID, cal, href, etag, deleted)
+}
+
+// LogTodoObjectSync bumps the CalDAV sync log for a todo changed via the REST
+// API so external clients see it through sync-collection (restore from trash
+// included).
+func LogTodoObjectSync(base *gorm.DB, teamID string, t *models.Todo, deleted bool) {
+	cal := t.Calendar
+	if cal == "" {
+		cal = calSelf
+	}
+	var user models.User
+	if err := middleware.ScopedDB(base, teamID).Where("id = ?", t.UserID).First(&user).Error; err != nil {
+		return
+	}
+	href := calendarPath(user.Email, cal) + todoUID(t) + ".ics"
+	etag := ""
+	if !deleted {
+		etag = todoEtag(t)
 	}
 	_, _ = syncLogChange(base, teamID, cal, href, etag, deleted)
 }
@@ -1488,11 +1510,11 @@ func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
 		if todoUID(&todos[i]) == uid {
 			t := todos[i]
 			// Scope the delete by calendar so the same UID in another
-			// calendar (e.g. a custom task list) is untouched.
+			// calendar (e.g. a custom task list) is untouched. The row is
+			// soft-deleted and travels to the items trash.
 			err := sc().Where("uid = ? AND calendar = ?", uid, t.Calendar).Delete(&models.Todo{}).Error
 			if err == nil {
 				recordTodoLog(sc(), s.Team.ID, s.User.ID, t.ID, "delete", "")
-				_ = attachments.DeleteForItem(b.app.DB, s.Team.ID, t.ID)
 				_, _ = syncLogChange(b.app.DB, s.Team.ID, cal, p, "", true)
 			}
 			return err
@@ -1505,7 +1527,6 @@ func (b *davBackend) DeleteCalendarObject(ctx context.Context, p string) error {
 	}
 	err = sc().Where("uid = ? AND calendar = ?", uid, cal).Delete(&models.CalendarEvent{}).Error
 	if err == nil {
-		_ = attachments.DeleteForItem(b.app.DB, s.Team.ID, ev.ID)
 		_, _ = syncLogChange(b.app.DB, s.Team.ID, cal, p, "", true)
 	}
 	return err

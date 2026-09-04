@@ -11,7 +11,6 @@ import (
 	"github.com/teambition/rrule-go"
 	"gorm.io/gorm"
 
-	"homihub/backend/internal/attachments"
 	"homihub/backend/internal/httpx"
 	"homihub/backend/internal/middleware"
 	"homihub/backend/internal/models"
@@ -416,9 +415,8 @@ func (h *Handler) delete(c *gin.Context) {
 		for _, a := range prev {
 			ids = append(ids, a.ID)
 		}
-		_ = modulecalendar.DeleteTodoInviteeCopies(middleware.DB(c), todo.UID, ids)
+		_ = modulecalendar.SoftDeleteTodoInviteeCopies(middleware.DB(c), todo.UID, ids)
 	}
-	_ = attachments.DeleteForItem(h.app.DB, cl.TeamID, todo.ID)
 	recordTodoLog(middleware.DB(c), cl.TeamID, cl.UserID, id, "delete", "")
 	httpx.OK(c, gin.H{"ok": true})
 }
