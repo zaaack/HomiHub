@@ -373,7 +373,7 @@
     "forbidden": "Insufficient permissions",
     "email_registered": "Email already registered",
     "email_or_password_wrong": "Wrong email or password",
-    "weak_password": "Password must be at least 8 characters and contain both letters and numbers",
+    "weak_password": "Password must be at least 4 characters",
     "internal_error": "Internal server error",
     "save_failed": "Save failed",
     "create_failed": "Create failed",

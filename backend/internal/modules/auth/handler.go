@@ -55,19 +55,7 @@ type loginResp struct {
 type LoginResp = loginResp
 
 func passwordStrong(pw string) bool {
-	if len(pw) < 8 {
-		return false
-	}
-	hasLetter, hasDigit := false, false
-	for _, r := range pw {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-			hasLetter = true
-		}
-		if r >= '0' && r <= '9' {
-			hasDigit = true
-		}
-	}
-	return hasLetter && hasDigit
+	return len(pw) >= 4
 }
 
 type registerInput struct {

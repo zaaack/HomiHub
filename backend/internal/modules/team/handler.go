@@ -1,6 +1,7 @@
 package moduleteam
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -200,13 +201,16 @@ func (h *Handler) join(c *gin.Context) {
 		return
 	}
 	now := time.Now()
+	var existingMember models.TeamMember
 	err := h.app.DB.Transaction(func(tx *gorm.DB) error {
-		var n int64
-		tx.Model(&models.TeamMember{}).Where("user_id = ? AND team_id = ?", user.ID, inv.TeamID).Count(&n)
-		if n == 0 {
+		err := tx.Where("user_id = ? AND team_id = ?", user.ID, inv.TeamID).First(&existingMember).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			if err := tx.Create(&models.TeamMember{UserID: user.ID, TeamID: inv.TeamID, Role: inv.Role}).Error; err != nil {
 				return err
 			}
+			existingMember.Role = inv.Role
+		} else if err != nil {
+			return err
 		}
 		return tx.Model(&models.Invite{}).Where("id = ?", inv.ID).Update("used_at", &now).Error
 	})
@@ -215,7 +219,7 @@ func (h *Handler) join(c *gin.Context) {
 		return
 	}
 	user.TeamID = inv.TeamID
-	user.Role = inv.Role
+	user.Role = existingMember.Role
 	if err := h.app.DB.Save(&user).Error; err != nil {
 		httpx.ErrT(c, 500, "save_failed")
 		return
