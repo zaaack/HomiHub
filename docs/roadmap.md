@@ -113,7 +113,7 @@ organizer 的行记录受邀者（`Attendees` JSON，RFC 5545 语义），同时
 
 ## 五. 通过 caldav 的 VJOURNAL 实现笔记模块
 
-- 笔记和待办一样有分组，标签，邀请他人协作
+- 笔记和待办一样有分组，标签，邀请他人协作（笔记清单级邀请 ⚙️、笔记逐条分享给指定用户 ⬜）
 - VJOURNAL笔记/VEVENT日历事件/VTODO待办 的附件都上传到 caldav 对应的team/personal 目录，并通过url 访问。
 - 笔记团队实时协作编辑，用 yjs + @tiptap/extension-collaboration
 
@@ -129,6 +129,28 @@ organizer 的行记录受邀者（`Attendees` JSON，RFC 5545 语义），同时
 - 新增 /notes 页面 + 侧栏导航（📝）：清单侧栏（颜色/图标/共享角标/标签过滤）、
   笔记卡片列表、新建/编辑笔记弹窗（标题 + 正文 + 标签 + 所属清单）、清单创建/编辑/共享弹窗。
 - 正文编辑器当前为纯文本 textarea；富文本 + 团队实时协作（yjs + TipTap）在五-C 接入。
+
+### 五-A3 笔记邀请与逐条分享 ⚙️（进行中）
+- 笔记清单级分享 UI 已有多选成员；核实团队成员 ≤1 人时仅显示提示（无法真正添加成员）。
+- 🆕 笔记逐条分享给指定用户：**决策：不走标准 iTIP 调度，走"副本机制"**。原因：RFC 5546
+  iTIP 调度语义不覆盖 VJOURNAL，标准 CalDAV 客户端无法投递/接受 VJOURNAL 邀请。改为仿事件
+  `autoScheduleEvent` 的做法——organizer 的 VJOURNAL 行记录受邀者，同时为受邀成员在其
+  `self` 个人空间创建一条私有 VJOURNAL 副本（同一 UID，含原始正文/标题/标签）；
+  取消分享/删除时级联删除副本；受邀者本地编辑只影响自己的副本。分享/可见性仍经现有
+  REST（`/api/v1/notes`）加 `attendees` 字段 + 行上 `Attendees` JSON 列实现。
+- 🆕 笔记双形态：
+  - **便签**：保留现有弹窗编辑（textarea 纯文本）。
+  - **协同文档**：新页面打开（非弹窗），关闭前有"未保存"提示，支持多用户实时协同编辑
+    （复用同一条 VJOURNAL 行，富文本 + 协作编辑见五-C）。
+
+### 五-C 笔记富文本 + 实时协作 ⬜（未开始）
+- **决策：实时协作必须以 yjs + @tiptap/extension-collaboration 实现，不能走标准 CalDAV。**
+  原因：CalDAV PUT 是整篇替换 + ETag 冲突检查，无行级合并、无实时光标、无 CRDT/OT 并发收敛，
+  无法承载多人同时编辑同一富文本文档；且与 VJOURNAL 无调度语义的问题无关（VEVENT/VTODO 同样如此）。
+- 这一步只提供"页面内实时协同编辑"，底层数据仍是同一条 VJOURNAL 行；最终序列化回
+  VJOURNAL `DESCRIPTION`（富文本存 HTML 或增量）。CalDAV/共享清单负责"分享可见"，
+  yjs 负责"实时协作"，二者职责分离、互不干扰。
+- 需要引入前端依赖：`yjs`、`@tiptap/extension-collaboration`（及 Provider，如 y-websocket，需配后端 WebSocket 端点）。
 
 ### 五-B 附件（事件/待办/笔记）✅（已实现）
 
