@@ -138,7 +138,7 @@ export default function TeamPage() {
               </div>
               {isOwner && !m.isOwner ? (
                 <select
-                  className="select px-2 py-1 text-xs"
+                  className="select px-2 py-1 text-xs w-auto!"
                   value={m.role}
                   disabled={busy}
                   onChange={(e) => void setRole(m.id, e.target.value)}
