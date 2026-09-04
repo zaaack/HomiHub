@@ -50,18 +50,15 @@ export default function Layout() {
   const sidebar = (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className={`p-4 ${sidebarOpen ? '' : 'px-2'}`}>
-        <div className={`flex items-center gap-2 ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
-          {sidebarOpen && <div className="text-lg font-bold">{t('app.title')}</div>}
+      <div className={`py-4 ${sidebarOpen ? 'px-2' : 'px-1'}`}>
+        <div className="flex items-center justify-between gap-2">
+          {sidebarOpen && <div className="ml-3 text-lg font-bold">{t('app.title')}</div>}
           <button
             onClick={() => setSidebarOpen((v) => !v)}
             className="nav-link hidden lg:flex shrink-0"
             title={sidebarOpen ? t('common.collapse') : t('common.expand')}
           >
             {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
-          </button>
-          <button onClick={closeMobile} className="nav-link lg:hidden">
-            <X size={18} />
           </button>
         </div>
         {team && sidebarOpen && (

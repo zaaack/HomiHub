@@ -85,8 +85,12 @@ func (h *Handler) register(c *gin.Context) {
 	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
 	in.Name = strings.TrimSpace(in.Name)
 	in.TeamName = strings.TrimSpace(in.TeamName)
-	if in.Name == "" || in.Email == "" || !passwordStrong(in.Password) {
+	if in.Name == "" || in.Email == "" {
 		httpx.BadRequestT(c, "bad_request")
+		return
+	}
+	if !passwordStrong(in.Password) {
+		httpx.BadRequestT(c, "weak_password")
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), bcrypt.DefaultCost)
