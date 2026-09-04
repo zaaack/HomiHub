@@ -6,8 +6,8 @@
 
 - **日历** — 兼容 CalDAV（RFC 4791），支持 RFC 6578 sync-token 增量同步、重复事件例外（Master + Exception 共用一个 .ics 资源）、大小写不敏感搜索。可与 Apple 日历、Google 日历、Nextcloud、Outlook 配合使用。
 - **文件** — 兼容 WebDAV（RFC 4918）的个人文件存储。后端基于 `go-webdavp`（`golang.org/x/net/webdav` 的并发 fork），对目录树 COPY/MOVE/PROPFIND 等批量操作做了并行化改造。
-- **待办** — 简单的个人待办列表。
-- **团队** — 多人家庭团队，支持邀请/加入流程。
+- **待办** — 待办清单，支持按成员共享、标签、优先级。
+- **团队** — 多人团队，支持 parent/child 角色、邀请/加入、多团队切换，以及清单级与逐条条目的成员级共享。详见 `docs/team.md`。
 - **设置** — 用户级配置。
 - **国际化** — 简体中文与英文界面。
 
@@ -64,7 +64,7 @@ cd backend && go run .
 backend/   Go 后端（模块：auth、calendar、files、settings、team、todos）
 frontend/  React SPA（src/pages、src/i18n/locales/{en,zh}.json）
 tests/     REST / CalDAV / WebDAV 测试脚本
-docs/      CALDAV.md、TESTING.md
+docs/      CALDAV.md、calendar.md、team.md、TESTING.md、roadmap.md
 build.sh   构建单二进制
 ```
 

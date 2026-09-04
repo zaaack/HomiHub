@@ -12,8 +12,10 @@ single binary.
 - **Files** — WebDAV-compliant (RFC 4918) personal file storage. Backed by
   `go-webdavp`, a parallel fork of `golang.org/x/net/webdav` with concurrent
   batch operations (COPY/MOVE/PROPFIND on large trees).
-- **Todos** — simple personal task list.
-- **Team** — multi-member personal team with an invite/join flow.
+- **Todos** — task lists, per-member sharing, tags, priority.
+- **Team** — multi-member team with roles (parent/child), invite/join,
+  multi-team switching, and member-scoped sharing of todo/note lists and
+  individual items. See `docs/team.md`.
 - **Settings** — per-user configuration.
 - **i18n** — English and Chinese (Simplified) UI.
 
@@ -71,7 +73,7 @@ All settings are environment variables:
 backend/   Go backend (modules: auth, calendar, files, settings, team, todos)
 frontend/  React SPA (src/pages, src/i18n/locales/{en,zh}.json)
 tests/     REST / CalDAV / WebDAV test harnesses
-docs/      CALDAV.md, TESTING.md
+docs/      CALDAV.md, calendar.md, team.md, TESTING.md, roadmap.md
 build.sh   Builds the single binary
 ```
 
