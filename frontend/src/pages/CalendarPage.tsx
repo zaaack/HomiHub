@@ -4,6 +4,8 @@ import { Bell, ChevronLeft, ChevronRight, Plus, Users, X, Trash2 } from 'lucide-
 import { api } from '../api/client'
 import { useAuth } from '../store/auth'
 import AttachmentField from '../components/AttachmentField'
+import { PopConfirm } from '../components/ui/pop-confirm'
+import ItemTrashPanel from '../components/ItemTrashPanel'
 import type { CalendarEvent, Member, Reminder, Visibility } from '../types'
 
 const CATS = ['work', 'school', 'family'] as const
@@ -147,6 +149,7 @@ export default function CalendarPage() {
   const [selected, setSelected] = useState<Date>(() => startOfDay(new Date()))
   const [editing, setEditing] = useState<FormState | null>(null)
   const [busy, setBusy] = useState(false)
+  const [trashOpen, setTrashOpen] = useState(false)
 
   const range = useMemo(() => {
     const from = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
@@ -367,6 +370,9 @@ export default function CalendarPage() {
           </div>
           <button className="btn-ghost" onClick={() => setCursor(startOfDay(new Date()))}>
             {t('calendar.today')}
+          </button>
+          <button className="btn-ghost" onClick={() => setTrashOpen(true)} title={t('trash.itemsTitle')}>
+            <Trash2 size={16} />
           </button>
         </div>
         <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-border)]">
@@ -762,15 +768,24 @@ export default function CalendarPage() {
                   {t('calendar.save')}
                 </button>
                 {editing.id && (
-                  <button className="btn-ghost text-[var(--app-danger)]" onClick={() => void remove()} disabled={busy}>
-                    <Trash2 size={16} />
-                  </button>
+                  <PopConfirm
+                    title={t('calendar.deleteTitle')}
+                    description={t('calendar.deleteConfirm')}
+                    confirmText={t('common.delete')}
+                    cancelText={t('common.cancel')}
+                    onConfirm={remove}
+                  >
+                    <button className="btn-ghost text-[var(--app-danger)]" disabled={busy}>
+                      <Trash2 size={16} />
+                    </button>
+                  </PopConfirm>
                 )}
               </div>
             </div>
           </div>
         </div>
       )}
+      {trashOpen && <ItemTrashPanel kind="event" onClose={() => setTrashOpen(false)} onChanged={() => void load()} />}
     </div>
   )
 }

@@ -84,6 +84,8 @@
     "to": "to",
     "start": "Start",
     "save": "Save",
+    "deleteTitle": "Delete event",
+    "deleteConfirm": "The event will be moved to the trash and can be restored anytime. Delete?",
     "delete": "Delete",
     "cancel": "Cancel",
     "noRepeat": "No repeat",
@@ -148,6 +150,8 @@
     "title": "Todos",
     "add": "New todo",
     "edit": "Edit todo",
+    "deleteTitle": "Delete todo",
+    "deleteConfirm": "The todo will be moved to the trash and can be restored anytime. Delete?",
     "toggle": "Toggle",
     "addPlaceholder": "Add a todo…",
     "empty": "No todos yet",
@@ -229,6 +233,8 @@
     "shareHint": "Shared lists appear on the member's notes page and both sides can edit. Unticked lists stay private to you.",
     "newNote": "New note",
     "editNote": "Edit note",
+    "deleteTitle": "Delete note",
+    "deleteConfirm": "The note will be moved to the trash and can be restored anytime. Delete?",
     "titlePlaceholder": "Title…",
     "bodyPlaceholder": "Body…",
     "tags": "Tags",
@@ -286,7 +292,10 @@
     "empty": "Trash is empty",
     "restore": "Restore",
     "purge": "Delete permanently",
-    "purgeConfirm": "Permanently delete this file? This cannot be undone."
+    "purgeConfirm": "Permanently delete this file? This cannot be undone.",
+    "itemsTitle": "Trash",
+    "itemsEmpty": "Trash is empty",
+    "itemsPurgeConfirm": "Permanently delete this item? This cannot be undone."
   },
   "team": {
     "title": "Team settings",
@@ -337,7 +346,9 @@
     "trashTitle": "Trash",
     "trashHint": "Deleted files and attachments go to the trash and are permanently removed after the configured number of days.",
     "trashDays": "days",
-    "trashZeroHint": "Set to 0 to keep items forever (no automatic deletion)."
+    "trashZeroHint": "Set to 0 to keep items forever (no automatic deletion).",
+    "trashItemsTitle": "Items trash",
+    "trashItemsHint": "Deleted calendar events, todos, and notes go to the trash and are permanently removed after the configured number of days (configured independently of the file trash)."
   },
   "common": {
     "loading": "Loading…",

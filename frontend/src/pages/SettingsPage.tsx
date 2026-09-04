@@ -9,6 +9,7 @@ export default function SettingsPage() {
   const { user } = useAuth()
   const [origins, setOrigins] = useState('')
   const [trashDays, setTrashDays] = useState(90)
+  const [trashItemsDays, setTrashItemsDays] = useState(90)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -21,6 +22,10 @@ export default function SettingsPage() {
       .get<{ days: number }>('/api/v1/settings/trash')
       .then((r) => setTrashDays(r.days ?? 90))
       .catch(() => {})
+    void api
+      .get<{ days: number }>('/api/v1/settings/trash-items')
+      .then((r) => setTrashItemsDays(r.days ?? 90))
+      .catch(() => {})
   }, [])
 
   const save = async () => {
@@ -29,6 +34,7 @@ export default function SettingsPage() {
     try {
       await api.put('/api/v1/settings/cors', { origins })
       await api.put('/api/v1/settings/trash', { days: trashDays })
+      await api.put('/api/v1/settings/trash-items', { days: trashItemsDays })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } finally {
@@ -73,24 +79,43 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="card p-4">
-        <div className="mb-3 flex items-center gap-2 text-base font-semibold">
-          <Trash2 size={18} />
-          {t('settings.trashTitle')}
+        <div className="card p-4">
+          <div className="mb-3 flex items-center gap-2 text-base font-semibold">
+            <Trash2 size={18} />
+            {t('settings.trashTitle')}
+          </div>
+          <p className="mb-3 text-xs text-[var(--app-muted)]">{t('settings.trashHint')}</p>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={0}
+              className="input w-32"
+              value={trashDays}
+              onChange={(e) => setTrashDays(Number(e.target.value))}
+            />
+            <span className="text-sm text-[var(--app-muted)]">{t('settings.trashDays')}</span>
+          </div>
+          <p className="mt-2 text-xs text-[var(--app-faint)]">{t('settings.trashZeroHint')}</p>
         </div>
-        <p className="mb-3 text-xs text-[var(--app-muted)]">{t('settings.trashHint')}</p>
-        <div className="flex items-center gap-3">
-          <input
-            type="number"
-            min={0}
-            className="input w-32"
-            value={trashDays}
-            onChange={(e) => setTrashDays(Number(e.target.value))}
-          />
-          <span className="text-sm text-[var(--app-muted)]">{t('settings.trashDays')}</span>
+
+        <div className="card p-4">
+          <div className="mb-3 flex items-center gap-2 text-base font-semibold">
+            <Trash2 size={18} />
+            {t('settings.trashItemsTitle')}
+          </div>
+          <p className="mb-3 text-xs text-[var(--app-muted)]">{t('settings.trashItemsHint')}</p>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={0}
+              className="input w-32"
+              value={trashItemsDays}
+              onChange={(e) => setTrashItemsDays(Number(e.target.value))}
+            />
+            <span className="text-sm text-[var(--app-muted)]">{t('settings.trashDays')}</span>
+          </div>
+          <p className="mt-2 text-xs text-[var(--app-faint)]">{t('settings.trashZeroHint')}</p>
         </div>
-        <p className="mt-2 text-xs text-[var(--app-faint)]">{t('settings.trashZeroHint')}</p>
-      </div>
     </div>
   )
 }

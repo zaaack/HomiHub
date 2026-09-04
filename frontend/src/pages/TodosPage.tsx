@@ -21,6 +21,7 @@ import { api } from '../api/client'
 import { useAuth } from '../store/auth'
 import { PopConfirm } from '../components/ui/pop-confirm'
 import AttachmentField from '../components/AttachmentField'
+import ItemTrashPanel from '../components/ItemTrashPanel'
 import type { Member, Reminder, Todo, TodoList } from '../types'
 
 function fmtLocal(iso: string | null): string {
@@ -156,6 +157,7 @@ export default function TodosPage() {
   const [listDraft, setListDraft] = useState<ListDraft | null>(null)
   const [editListId, setEditListId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [trashOpen, setTrashOpen] = useState(false)
   const [atSel, setAtSel] = useState('')
   const [exSel, setExSel] = useState('')
 
@@ -571,16 +573,21 @@ export default function TodosPage() {
             {activeList && renderListChip(activeList, 'lg')}
             {activeList ? listDisplayName(activeList) : t('todos.title')}
           </h1>
-          {activeList && (
-            <span className="flex items-center gap-1 text-xs text-[var(--app-muted)]">
-              {activeList.kind !== 'personal' && (activeList.members?.length ?? 0) > 0 && (
-                <>
-                  <Users size={13} />
-                  {activeList.members.length}
-                </>
-              )}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {activeList && (
+              <span className="flex items-center gap-1 text-xs text-[var(--app-muted)]">
+                {activeList.kind !== 'personal' && (activeList.members?.length ?? 0) > 0 && (
+                  <>
+                    <Users size={13} />
+                    {activeList.members.length}
+                  </>
+                )}
+              </span>
+            )}
+            <button className="btn-ghost shrink-0" onClick={() => setTrashOpen(true)} title={t('trash.itemsTitle')}>
+              <Trash2 size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="card mb-4 flex items-center gap-2 p-3">
@@ -1066,22 +1073,27 @@ export default function TodosPage() {
                   {t('common.save')}
                 </button>
                 {editing.id && (
-                  <button
-                    className="btn-ghost text-[var(--app-danger)]"
-                    onClick={() => {
+                  <PopConfirm
+                    title={t('todos.deleteTitle')}
+                    description={t('todos.deleteConfirm')}
+                    confirmText={t('common.delete')}
+                    cancelText={t('common.cancel')}
+                    onConfirm={() => {
                       void remove(editing.id!)
                       setEditing(null)
                     }}
-                    disabled={busy}
                   >
-                    <Trash2 size={16} />
-                  </button>
+                    <button className="btn-ghost text-[var(--app-danger)]" disabled={busy}>
+                      <Trash2 size={16} />
+                    </button>
+                  </PopConfirm>
                 )}
               </div>
             </div>
           </div>
         </div>
       )}
+      {trashOpen && <ItemTrashPanel kind="todo" onClose={() => setTrashOpen(false)} onChanged={() => void load()} />}
     </div>
   )
 }
@@ -1169,9 +1181,17 @@ function TodoRow({
           </div>
         )}
       </button>
-      <button onClick={onDelete} className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-danger)]">
-        <Trash2 size={16} />
-      </button>
+      <PopConfirm
+        title={t('todos.deleteTitle')}
+        description={t('todos.deleteConfirm')}
+        confirmText={t('common.delete')}
+        cancelText={t('common.cancel')}
+        onConfirm={onDelete}
+      >
+        <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-danger)]">
+          <Trash2 size={16} />
+        </button>
+      </PopConfirm>
     </div>
   )
 }

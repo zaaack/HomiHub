@@ -71,6 +71,7 @@ export interface CalendarEvent {
   rrule: string
   exdates: string[]
   visibility: Visibility
+  deletedAt?: string | null
   createdAt: string
   updatedAt: string
   start: string
@@ -105,6 +106,7 @@ export interface Todo {
   hasDate: boolean
   reminders: Reminder[]
   attendees?: Attendee[]
+  deletedAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -140,6 +142,7 @@ export interface Note {
   body: string
   tags: string
   attendees?: Attendee[]
+  deletedAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -170,6 +173,16 @@ export interface FileItem {
   deletedAt: string | null
   createdAt: string
   updatedAt: string
+}
+
+// An entry of the items recycle bin (deleted calendar event / todo / note).
+export interface TrashItem {
+  id: string
+  kind: 'event' | 'todo' | 'note'
+  title: string
+  calendar: string
+  userId: string
+  deletedAt: string
 }
 
 // A file attached to an event / todo / note item. Content is served by the

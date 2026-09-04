@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import { useAuth } from '../store/auth'
 import { PopConfirm } from '../components/ui/pop-confirm'
 import AttachmentField from '../components/AttachmentField'
+import ItemTrashPanel from '../components/ItemTrashPanel'
 import type { Member, Note, NoteList } from '../types'
 
 const LIST_COLORS = ['#22c55e', '#4f8cff', '#ef4444', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899', '#64748b', '#84cc16', '#f97316']
@@ -39,6 +40,7 @@ export default function NotesPage() {
   const [listDraft, setListDraft] = useState<ListDraft | null>(null)
   const [editListId, setEditListId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [trashOpen, setTrashOpen] = useState(false)
 
   const load = async () => {
     try {
@@ -293,10 +295,15 @@ export default function NotesPage() {
             {activeList && chip(activeList, 'lg')}
             {activeList ? listName(activeList) : t('notes.title')}
           </h1>
-          <button className="btn-primary shrink-0" onClick={() => openCreate()}>
-            <Plus size={16} />
-            {t('notes.newNote')}
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="btn-ghost shrink-0" onClick={() => setTrashOpen(true)} title={t('trash.itemsTitle')}>
+              <Trash2 size={16} />
+            </button>
+            <button className="btn-primary shrink-0" onClick={() => openCreate()}>
+              <Plus size={16} />
+              {t('notes.newNote')}
+            </button>
+          </div>
         </div>
         <div className="space-y-2">
           {tagged.length === 0 && <div className="card py-10 text-center text-sm text-[var(--app-muted)]">{t('notes.empty')}</div>}
@@ -518,22 +525,27 @@ export default function NotesPage() {
                   {t('notes.save')}
                 </button>
                 {editing.id && (
-                  <button
-                    className="btn-ghost text-[var(--app-danger)]"
-                    onClick={() => {
+                  <PopConfirm
+                    title={t('notes.deleteTitle')}
+                    description={t('notes.deleteConfirm')}
+                    confirmText={t('common.delete')}
+                    cancelText={t('common.cancel')}
+                    onConfirm={() => {
                       void remove(editing.id!)
                       setEditing(null)
                     }}
-                    disabled={busy}
                   >
-                    <Trash2 size={16} />
-                  </button>
+                    <button className="btn-ghost text-[var(--app-danger)]" disabled={busy}>
+                      <Trash2 size={16} />
+                    </button>
+                  </PopConfirm>
                 )}
               </div>
             </div>
           </div>
         </div>
       )}
+      {trashOpen && <ItemTrashPanel kind="note" onClose={() => setTrashOpen(false)} onChanged={() => void load()} />}
     </div>
   )
 }

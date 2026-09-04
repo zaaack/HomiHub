@@ -84,6 +84,8 @@
     "to": "至",
     "start": "开始",
     "save": "保存",
+    "deleteTitle": "删除事件",
+    "deleteConfirm": "删除后事件将移入回收站，可随时恢复。确定删除？",
     "delete": "删除",
     "cancel": "取消",
     "noRepeat": "不重复",
@@ -148,6 +150,8 @@
     "title": "待办",
     "add": "新建待办",
     "edit": "编辑待办",
+    "deleteTitle": "删除待办",
+    "deleteConfirm": "删除后待办将移入回收站，可随时恢复。确定删除？",
     "toggle": "切换",
     "addPlaceholder": "添加待办…",
     "empty": "还没有待办",
@@ -229,6 +233,8 @@
     "shareHint": "共享后该清单会出现在对方的笔记页，双方都能编辑；不勾选则仅自己可见。",
     "newNote": "新建笔记",
     "editNote": "编辑笔记",
+    "deleteTitle": "删除笔记",
+    "deleteConfirm": "删除后笔记将移入回收站，可随时恢复。确定删除？",
     "titlePlaceholder": "标题…",
     "bodyPlaceholder": "正文…",
     "tags": "标签",
@@ -286,7 +292,10 @@
     "empty": "回收站是空的",
     "restore": "恢复",
     "purge": "彻底删除",
-    "purgeConfirm": "确定彻底删除该文件？此操作不可恢复。"
+    "purgeConfirm": "确定彻底删除该文件？此操作不可恢复。",
+    "itemsTitle": "回收站",
+    "itemsEmpty": "回收站是空的",
+    "itemsPurgeConfirm": "确定彻底删除该项？此操作不可恢复。"
   },
   "team": {
     "title": "团队设置",
@@ -337,7 +346,9 @@
     "trashTitle": "回收站",
     "trashHint": "删除的文件与附件进入回收站，保留指定天数后自动彻底删除。",
     "trashDays": "天",
-    "trashZeroHint": "设为 0 表示永久保留，不自动删除。"
+    "trashZeroHint": "设为 0 表示永久保留，不自动删除。",
+    "trashItemsTitle": "条目回收站",
+    "trashItemsHint": "删除的日历事件、待办与笔记进入回收站，保留指定天数后自动彻底删除（与文件回收站独立配置）。"
   },
   "common": {
     "loading": "加载中…",

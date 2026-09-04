@@ -111,15 +111,18 @@ func (h *Handler) listTrash(c *gin.Context) {
 		if err := q.Order("deleted_at DESC").Find(&evs).Error; err == nil {
 			for i := range evs {
 				ev := &evs[i]
-				if kind == "note" {
-					if !canManageNote(sc(), cl, ev) {
-						continue
-					}
-				} else if !canManageEvent(cl, ev) {
+				k := "event"
+				if ev.ComponentType == "VJOURNAL" {
+					k = "note"
+				}
+				if k == "note" && !canManageNote(sc(), cl, ev) {
+					continue
+				}
+				if k == "event" && !canManageEvent(cl, ev) {
 					continue
 				}
 				out = append(out, trashItemView{
-					ID: ev.ID, Kind: "event", Title: ev.Title,
+					ID: ev.ID, Kind: k, Title: ev.Title,
 					Calendar: ev.Calendar, UserID: ev.UserID, DeletedAt: ev.DeletedAt.Time,
 				})
 			}
