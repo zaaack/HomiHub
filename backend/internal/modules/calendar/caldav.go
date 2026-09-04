@@ -1425,6 +1425,7 @@ func (b *davBackend) putJournal(ctx context.Context, p, calName string, journals
 			ev.Title = pe.Title
 			ev.Description = pe.Description
 			ev.Tags = tagsToCSV(pe.Tags)
+			ev.Attendees = models.AttendeesJSON(pe.Attendees)
 			ev.StartsAt = pe.StartsAt
 			ev.UpdatedAt = time.Now()
 			if err := sc().Save(&ev).Error; err != nil {
@@ -1442,6 +1443,7 @@ func (b *davBackend) putJournal(ctx context.Context, p, calName string, journals
 				Title:         pe.Title,
 				Description:   pe.Description,
 				Tags:          tagsToCSV(pe.Tags),
+				Attendees:     models.AttendeesJSON(pe.Attendees),
 				StartsAt:      pe.StartsAt,
 				Visibility:    vis,
 			}

@@ -173,6 +173,7 @@ func journalComponent(ev *models.CalendarEvent) *ical.Component {
 		p.Value = tag
 		comp.Props.Add(p)
 	}
+	writeAttendeeProps(comp, models.ParseAttendees(ev.Attendees))
 	return comp
 }
 
@@ -205,6 +206,7 @@ func ParseJournals(cal *ical.Calendar) []parsedEvent {
 		pe.Title, _ = child.Props.Text(ical.PropSummary)
 		pe.Description, _ = child.Props.Text(ical.PropDescription)
 		pe.Tags = journalCategories(child)
+		pe.Attendees = readAttendeeProps(child)
 		if sp := child.Props.Get(ical.PropDateTimeStart); sp != nil {
 			if t, err := sp.DateTime(nil); err == nil {
 				pe.StartsAt = t.UTC()

@@ -139,6 +139,7 @@ export interface Note {
   title: string
   body: string
   tags: string
+  attendees?: Attendee[]
   createdAt: string
   updatedAt: string
 }

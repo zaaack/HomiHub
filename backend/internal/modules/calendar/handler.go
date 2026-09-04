@@ -349,7 +349,7 @@ func (h *Handler) create(c *gin.Context) {
 		return
 	}
 	// Invitees that cannot already see the event get a private personal copy.
-	syncEventInvites(h.app.DB, cl.TeamID, &ev, users, nil, cl.UserID)
+	SyncEventInvites(h.app.DB, cl.TeamID, &ev, users, nil, cl.UserID)
 	h.recordEventSync(&ev, false)
 	httpx.Created(c, occurrenceView(&ev, ev.StartsAt, ev.EndsAt))
 }
@@ -424,7 +424,7 @@ func (h *Handler) update(c *gin.Context) {
 	}
 	var ev models.CalendarEvent
 	middleware.DB(c).First(&ev, "id = ?", id)
-	syncEventInvites(h.app.DB, cl.TeamID, &ev, users, prev, cl.UserID)
+	SyncEventInvites(h.app.DB, cl.TeamID, &ev, users, prev, cl.UserID)
 	h.recordEventSync(&ev, false)
 	httpx.OK(c, occurrenceView(&ev, ev.StartsAt, ev.EndsAt))
 }

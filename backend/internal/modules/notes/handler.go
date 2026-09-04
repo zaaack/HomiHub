@@ -55,16 +55,17 @@ func (h *Handler) scoped(teamID string) *gorm.DB {
 
 // noteView is the REST shape of a note.
 type noteView struct {
-	ID        string    `json:"id"`
-	UID       string    `json:"uid"`
-	TeamID    string    `json:"teamId"`
-	UserID    string    `json:"userId"`
-	Calendar  string    `json:"calendar"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	Tags      string    `json:"tags"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string             `json:"id"`
+	UID       string             `json:"uid"`
+	TeamID    string             `json:"teamId"`
+	UserID    string             `json:"userId"`
+	Calendar  string             `json:"calendar"`
+	Title     string             `json:"title"`
+	Body      string             `json:"body"`
+	Tags      string             `json:"tags"`
+	Attendees []models.Attendee  `json:"attendees"`
+	CreatedAt time.Time          `json:"createdAt"`
+	UpdatedAt time.Time          `json:"updatedAt"`
 }
 
 func toNoteView(ev *models.CalendarEvent) noteView {
@@ -77,16 +78,18 @@ func toNoteView(ev *models.CalendarEvent) noteView {
 		Title:     ev.Title,
 		Body:      ev.Description,
 		Tags:      ev.Tags,
+		Attendees: models.ParseAttendees(ev.Attendees),
 		CreatedAt: ev.CreatedAt,
 		UpdatedAt: ev.UpdatedAt,
 	}
 }
 
 type noteInput struct {
-	Title    string `json:"title"`
-	Body     string `json:"body"`
-	Tags     string `json:"tags"`
-	Calendar string `json:"calendar"` // "self", "team", or a custom note-list calendar
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Tags      string   `json:"tags"`
+	Calendar  string   `json:"calendar"` // "self", "team", or a custom note-list calendar
+	Attendees []string `json:"attendees"` // team member ids to invite (VJOURNAL ATTENDEE)
 }
 
 func normalizeNote(in *noteInput) bool {
@@ -177,10 +180,16 @@ func (h *Handler) create(c *gin.Context) {
 		Tags:          in.Tags,
 		Visibility:    vis,
 	}
+	// Resolve invited members before writing so the row stores the resolved set.
+	attendees, users := modulecalendar.ResolveInvitees(h.app.DB, cl.TeamID, in.Attendees)
+	ev.Attendees = models.AttendeesJSON(attendees)
 	if err := h.scoped(cl.TeamID).Create(&ev).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "create_failed")
 		return
 	}
+	// Invitees that cannot already see the list get a private copy in their own
+	// personal (self) space, mirroring the event/todo invite flow.
+	modulecalendar.SyncEventInvites(h.app.DB, cl.TeamID, &ev, users, nil, cl.UserID)
 	modulecalendar.LogCalendarObjectSync(h.app.DB, cl.TeamID, &ev, false)
 	httpx.Created(c, toNoteView(&ev))
 }
@@ -236,12 +245,17 @@ func (h *Handler) update(c *gin.Context) {
 			updates["visibility"] = models.VisibilityTeam
 		}
 	}
+	// Re-invite members: resolve the new set and write it before syncing copies.
+	prev := models.ParseAttendees(existing.Attendees)
+	attendees, users := modulecalendar.ResolveInvitees(h.app.DB, cl.TeamID, in.Attendees)
+	updates["attendees"] = models.AttendeesJSON(attendees)
 	if err := h.scoped(cl.TeamID).Model(&models.CalendarEvent{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		httpx.ErrT(c, http.StatusInternalServerError, "save_failed")
 		return
 	}
 	var ev models.CalendarEvent
 	h.scoped(cl.TeamID).Where("id = ?", id).First(&ev)
+	modulecalendar.SyncEventInvites(h.app.DB, cl.TeamID, &ev, users, prev, cl.UserID)
 	modulecalendar.LogCalendarObjectSync(h.app.DB, cl.TeamID, &ev, false)
 	httpx.OK(c, toNoteView(&ev))
 }
@@ -264,6 +278,14 @@ func (h *Handler) delete(c *gin.Context) {
 		return
 	}
 	_ = attachments.DeleteForItem(h.app.DB, cl.TeamID, ev.ID)
+	// Remove invitee personal copies (same UID) of a deleted note.
+	inviteeIDs := make([]string, 0, 4)
+	for _, a := range models.ParseAttendees(ev.Attendees) {
+		if a.ID != "" {
+			inviteeIDs = append(inviteeIDs, a.ID)
+		}
+	}
+	modulecalendar.DeleteEventInviteeCopies(h.scoped(ev.TeamID), ev.UID, inviteeIDs)
 	modulecalendar.LogCalendarObjectSync(h.app.DB, cl.TeamID, &ev, true)
 	httpx.OK(c, gin.H{"ok": true})
 }

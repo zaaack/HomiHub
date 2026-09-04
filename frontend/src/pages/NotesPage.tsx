@@ -25,6 +25,7 @@ interface NoteDraft {
   body: string
   tags: string
   calendar: string
+  attendeeIds: string[]
 }
 
 export default function NotesPage() {
@@ -102,11 +103,18 @@ export default function NotesPage() {
   const writableLists = lists.filter((l) => l.writable)
 
   const openCreate = (calendar?: string) => {
-    setEditing({ title: '', body: '', tags: '', calendar: calendar ?? (activeListId || 'self') })
+    setEditing({ title: '', body: '', tags: '', calendar: calendar ?? (activeListId || 'self'), attendeeIds: [] })
   }
 
   const openEdit = (n: Note) => {
-    setEditing({ id: n.id, title: n.title, body: n.body, tags: n.tags, calendar: n.calendar })
+    setEditing({
+      id: n.id,
+      title: n.title,
+      body: n.body,
+      tags: n.tags,
+      calendar: n.calendar,
+      attendeeIds: (n.attendees ?? []).map((a) => a.id).filter(Boolean),
+    })
   }
 
   const submit = async () => {
@@ -118,6 +126,7 @@ export default function NotesPage() {
         body: editing.body.trim(),
         tags: editing.tags.trim(),
         calendar: editing.calendar || 'self',
+        attendees: editing.attendeeIds,
       }
       if (editing.id) await api.put(`/api/v1/notes/${editing.id}`, payload)
       else await api.post('/api/v1/notes', payload)
@@ -473,6 +482,36 @@ export default function NotesPage() {
                 value={editing.body}
                 onChange={(e) => setEditing({ ...editing, body: e.target.value })}
               />
+              <div>
+                <label className="mb-1 block text-xs text-[var(--app-muted)]">{t('notes.inviteTitle')}</label>
+                <div className="space-y-1 rounded-lg border border-[var(--app-border)] p-2">
+                  {teamMembers
+                    .filter((m) => m.id !== me?.id)
+                    .map((m) => {
+                      const on = editing.attendeeIds.includes(m.id)
+                      return (
+                        <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={on}
+                            onChange={(e) =>
+                              setEditing({
+                                ...editing,
+                                attendeeIds: e.target.checked
+                                  ? [...editing.attendeeIds, m.id]
+                                  : editing.attendeeIds.filter((x) => x !== m.id),
+                              })
+                            }
+                          />
+                          <span className="truncate">{m.name}</span>
+                        </label>
+                      )
+                    })}
+                  {teamMembers.length <= 1 && <div className="text-xs text-[var(--app-muted)]">{t('notes.shareHint')}</div>}
+                </div>
+                <p className="mt-1.5 text-[11px] text-[var(--app-muted)]">{t('notes.inviteHint')}</p>
+              </div>
               <AttachmentField kind="note" itemId={editing.id} />
               <div className="flex gap-2 pt-2">
                 <button className="btn-primary flex-1" onClick={() => void submit()} disabled={busy || (!editing.title.trim() && !editing.body.trim())}>

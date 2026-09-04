@@ -238,7 +238,9 @@
     "untitled": "Untitled",
     "save": "Save",
     "delete": "Delete",
-    "shared": "Shared"
+    "shared": "Shared",
+    "inviteTitle": "Share with members",
+    "inviteHint": "Invited members get a copy in their own personal notes (same UID VJOURNAL). Local edits never overwrite each other."
   },
   "files": {
     "title": "Files",

@@ -127,10 +127,11 @@ func needsInviteCopy(db *gorm.DB, teamID, calName, inviteeID string) bool {
 	return TodoListRole(db, teamID, inviteeID, calName) == ""
 }
 
-// syncEventInvites reconciles invitee personal copies with the organizer's
+// SyncEventInvites reconciles invitee personal copies with the organizer's
 // attendee set: upserts copies for invitees that cannot already see the event,
 // removes copies of former invitees or of invitees that now see it directly.
-func syncEventInvites(base *gorm.DB, teamID string, ev *models.CalendarEvent, users []models.User, prev []models.Attendee, selfID string) {
+// Shared by VEVENT (events) and VJOURNAL (notes) rows.
+func SyncEventInvites(base *gorm.DB, teamID string, ev *models.CalendarEvent, users []models.User, prev []models.Attendee, selfID string) {
 	sc := func() *gorm.DB { return middleware.ScopedDB(base, teamID) }
 	curIDs := map[string]bool{}
 	for _, u := range users {
@@ -195,6 +196,7 @@ func UpsertEventInviteeCopy(base *gorm.DB, teamID string, org *models.CalendarEv
 	row.Category = org.Category
 	row.Location = org.Location
 	row.Description = org.Description
+	row.Tags = org.Tags
 	row.Class = org.Class
 	row.Duration = org.Duration
 	row.StartsAt = org.StartsAt
@@ -276,7 +278,7 @@ func DeleteTodoInviteeCopies(db *gorm.DB, uid string, userIDs []string) error {
 }
 
 // SyncTodoInvites reconciles invitee personal todo copies with the organizer's
-// attendee set (see syncEventInvites for the semantics). Invitees keep their
+// attendee set (see SyncEventInvites for the semantics). Invitees keep their
 // local completion state; only content is refreshed.
 func SyncTodoInvites(base *gorm.DB, teamID string, org *models.Todo, users []models.User, prev []models.Attendee, selfID string) {
 	sc := func() *gorm.DB { return middleware.ScopedDB(base, teamID) }

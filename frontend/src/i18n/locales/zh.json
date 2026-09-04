@@ -238,7 +238,9 @@
     "untitled": "无标题",
     "save": "保存",
     "delete": "删除",
-    "shared": "共享"
+    "shared": "共享",
+    "inviteTitle": "分享给成员",
+    "inviteHint": "受邀成员会在自己的个人笔记中获得一份副本（同一 UID 的 VJOURNAL）；本地编辑不会覆盖彼此的修改。"
   },
   "files": {
     "title": "文件",
