@@ -20,7 +20,7 @@ func ViewsForItem(base *gorm.DB, teamID, kind, itemID string) []models.Attachmen
 		return nil
 	}
 	if len(atts) == 0 {
-		return nil
+		return []models.AttachmentView{}
 	}
 	ids := make([]string, 0, len(atts))
 	byID := make(map[string]models.Attachment, len(atts))
