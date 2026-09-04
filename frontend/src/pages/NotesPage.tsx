@@ -312,6 +312,19 @@ export default function NotesPage() {
               <div className="flex items-center justify-between gap-2">
                 <div className="truncate font-medium">{n.title || t('notes.untitled')}</div>
                 <div className="flex shrink-0 items-center gap-1 text-xs text-[var(--app-muted)]">
+                  {!activeListId && (
+                    <span className="flex items-center gap-1">
+                      <List size={12} />
+                      {listName(listsById.get(n.calendar))}
+                    </span>
+                  )}
+                  {n.attendees && n.attendees.length > 0 && (
+                    <span className="flex items-center gap-1" title={t('notes.invitees')}>
+                      <Users size={12} />
+                      {n.attendees.slice(0, 2).map((a) => a.name || a.email).join(', ')}
+                      {n.attendees.length > 2 ? `+${n.attendees.length - 2}` : ''}
+                    </span>
+                  )}
                   {n.calendar !== 'self' && n.calendar !== 'team' && (
                     <span className="flex items-center gap-1">
                       <Users size={12} />

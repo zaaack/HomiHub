@@ -16,6 +16,7 @@ import {
   Pencil,
   Inbox,
   FilterX,
+  ListChecks,
 } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../store/auth'
@@ -616,6 +617,7 @@ export default function TodosPage() {
               depth={depth}
               overdue={isOverdue(todo)}
               allTop={allTop}
+              listLabel={activeListId ? '' : listDisplayName(listsById.get(todo.calendar))}
               onToggle={() => void toggle(todo)}
               onEdit={() => openEdit(todo)}
               onDelete={() => void remove(todo.id)}
@@ -1103,6 +1105,7 @@ function TodoRow({
   depth,
   overdue,
   allTop,
+  listLabel,
   onToggle,
   onEdit,
   onDelete,
@@ -1111,6 +1114,7 @@ function TodoRow({
   depth: number
   overdue: boolean
   allTop: Todo[]
+  listLabel: string
   onToggle: () => void
   onEdit: () => void
   onDelete: () => void
@@ -1132,8 +1136,14 @@ function TodoRow({
           {prio && <Flag size={13} className={`shrink-0 ${priorityColor(todo.priority)}`} />}
           <span className={`truncate ${todo.completed ? 'text-[var(--app-faint)] line-through' : ''}`}>{todo.title}</span>
         </div>
-        {(todo.dueAt || todo.calendar === 'team' || todo.rrule || todo.group || todo.reminders?.length) && (
+        {(todo.dueAt || todo.calendar === 'team' || todo.rrule || todo.group || todo.reminders?.length || (todo.attendees?.length ?? 0) > 0 || listLabel) && (
           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
+            {listLabel && (
+              <span className="flex items-center gap-1">
+                <ListChecks size={12} />
+                {listLabel}
+              </span>
+            )}
             {todo.dueAt && (
               <span className={`flex items-center gap-1 ${overdue ? 'font-medium text-[var(--app-danger)]' : ''}`}>
                 <Clock size={12} />
