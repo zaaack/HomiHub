@@ -6,7 +6,8 @@ import {
 } from 'lucide-react'
 import { api, uploadFile } from '../api/client'
 import { useAuth } from '../store/auth'
-import type { AttachmentManageView, FileFolderItem, FileItem } from '../types'
+import { ApiError } from '../api/client'
+import type { AttachmentManageView, FileFolderItem, FileItem, Member } from '../types'
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`
@@ -46,6 +47,12 @@ export default function FilesPage() {
   const [attTo, setAttTo] = useState('')
   const [atts, setAtts] = useState<AttachmentManageView[]>([])
   const [attBusy, setAttBusy] = useState(false)
+  const [members, setMembers] = useState<Member[]>([])
+  const [error, setError] = useState('')
+
+  const memberName = (id: string) => members.find((m) => m.id === id)?.name ?? ''
+
+  const showError = (e: unknown) => setError(e instanceof ApiError ? e.message : t('common.error'))
 
   const folderId = crumb.length > 0 ? crumb[crumb.length - 1].id : ''
 
@@ -70,6 +77,13 @@ export default function FilesPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    api
+      .get<Member[]>('/api/v1/team/members')
+      .then(setMembers)
+      .catch(() => setMembers([]))
+  }, [])
 
   const switchScope = (s: 'public' | 'personal') => {
     setScope(s)
@@ -121,8 +135,8 @@ export default function FilesPage() {
     try {
       await api.del(`/api/v1/attachments/${a.id}`)
       await loadAtts()
-    } catch {
-      /* ignore */
+    } catch (e) {
+      showError(e)
     }
   }
 
@@ -150,8 +164,8 @@ export default function FilesPage() {
     try {
       await api.post(`/api/v1/files/trash/${id}/restore`, {})
       await loadTrash()
-    } catch {
-      /* ignore */
+    } catch (e) {
+      showError(e)
     }
   }
 
@@ -160,8 +174,8 @@ export default function FilesPage() {
     try {
       await api.del(`/api/v1/files/trash/${f.id}`)
       await loadTrash()
-    } catch {
-      /* ignore */
+    } catch (e) {
+      showError(e)
     }
   }
 
@@ -176,8 +190,8 @@ export default function FilesPage() {
     try {
       await uploadFile('/api/v1/files', form)
       await load()
-    } catch {
-      /* ignore */
+    } catch (e) {
+      showError(e)
     } finally {
       setBusy(false)
       e.target.value = ''
@@ -206,8 +220,8 @@ export default function FilesPage() {
       setNewFolderName('')
       setNewFolderOpen(false)
       await load()
-    } catch {
-      /* ignore */
+    } catch (e) {
+      showError(e)
     }
   }
 
@@ -216,8 +230,8 @@ export default function FilesPage() {
     try {
       await api.del(`/api/v1/files/folders/${id}`)
       await load()
-    } catch {
-      /* ignore */
+    } catch (e) {
+      showError(e)
     }
   }
 
@@ -226,8 +240,8 @@ export default function FilesPage() {
     try {
       await api.del(`/api/v1/files/${id}`)
       await load()
-    } catch {
-      /* ignore */
+    } catch (e) {
+      showError(e)
     }
   }
 
@@ -241,8 +255,8 @@ export default function FilesPage() {
       }
       setRenameTarget(null)
       await load()
-    } catch {
-      /* ignore */
+    } catch (e) {
+      showError(e)
     }
   }
 
@@ -306,6 +320,15 @@ export default function FilesPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="mb-4 flex items-center justify-between gap-2 rounded-lg border border-[var(--app-danger)] bg-[var(--app-danger-soft)] px-3 py-2 text-sm text-[var(--app-danger)]">
+          <span>{error}</span>
+          <button className="shrink-0" onClick={() => setError('')} title={t('common.close')}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {tab === 'files' && (
         <div className="card mb-4 flex items-center gap-2 px-3 py-2 text-sm">
         <button className="nav-link" onClick={() => setCrumb([])}>
@@ -339,6 +362,7 @@ export default function FilesPage() {
                     <Folder size={18} className="shrink-0 text-[var(--app-accent)]" />
                     <span className="truncate font-medium">{f.name}</span>
                   </button>
+                  <div className="shrink-0 text-xs text-[var(--app-muted)]">{memberName(f.ownerId)}</div>
                   <div className="shrink-0 text-xs text-[var(--app-muted)]">{new Date(f.updatedAt).toLocaleDateString()}</div>
                   <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-accent)]" onClick={() => { setRenameTarget({ id: f.id, name: f.name, isFolder: true }); setRenameName(f.name) }} title={t('files.rename')}>
                     <PenLine size={16} />
@@ -355,6 +379,7 @@ export default function FilesPage() {
                     {f.name}
                   </button>
                   <div className="shrink-0 text-xs text-[var(--app-muted)]">{fmtSize(f.size)}</div>
+                  <div className="shrink-0 text-xs text-[var(--app-muted)]">{memberName(f.ownerId)}</div>
                   <div className="shrink-0 text-xs text-[var(--app-muted)]">{new Date(f.updatedAt).toLocaleDateString()}</div>
                   <button className="shrink-0 text-[var(--app-muted)] hover:text-[var(--app-accent)]" onClick={() => void download(f)} title={t('files.download')}>
                     <Download size={16} />

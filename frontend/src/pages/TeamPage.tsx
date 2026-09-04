@@ -58,6 +58,16 @@ export default function TeamPage() {
     }
   }
 
+  const setRole = async (id: string, role: string) => {
+    setBusy(true)
+    try {
+      await api.patch(`/api/v1/team/members/${id}/role`, { role })
+      await load()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const copyInvite = (link: string) => {
     const url = `${window.location.origin}/join?code=${encodeURIComponent(link)}`
     void navigator.clipboard.writeText(url)
@@ -126,9 +136,22 @@ export default function TeamPage() {
                 </div>
                 <div className="truncate text-xs text-[var(--app-muted)]">{m.email}</div>
               </div>
-              <span className="rounded-full bg-[var(--app-card-sub)] px-2 py-0.5 text-xs text-[var(--app-muted)]">
-                {m.role === 'parent' ? t('auth.parent') : t('auth.child')}
-              </span>
+              {isOwner && !m.isOwner ? (
+                <select
+                  className="select px-2 py-1 text-xs"
+                  value={m.role}
+                  disabled={busy}
+                  onChange={(e) => void setRole(m.id, e.target.value)}
+                  title={t('team.setRole')}
+                >
+                  <option value="parent">{t('auth.parent')}</option>
+                  <option value="child">{t('auth.child')}</option>
+                </select>
+              ) : (
+                <span className="rounded-full bg-[var(--app-card-sub)] px-2 py-0.5 text-xs text-[var(--app-muted)]">
+                  {m.role === 'parent' ? t('auth.parent') : t('auth.child')}
+                </span>
+              )}
             </div>
           ))}
         </div>

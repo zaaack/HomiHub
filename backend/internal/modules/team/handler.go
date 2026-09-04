@@ -33,6 +33,7 @@ func (h *Handler) RegisterRoutes(g *gin.RouterGroup) {
 	g.PATCH("/team", auth, middleware.RequireParent(), h.rename)
 	g.POST("/team/reset-calendar-token", auth, middleware.RequireParent(), h.resetCalendarToken)
 	g.GET("/team/members", auth, h.members)
+	g.PATCH("/team/members/:id/role", auth, middleware.RequireParent(), h.setMemberRole)
 	g.POST("/invites", auth, middleware.RequireParent(), h.createInvite)
 	g.GET("/invites", auth, middleware.RequireParent(), h.listInvites)
 	g.GET("/invites/info", h.inviteInfo)
@@ -115,6 +116,45 @@ func (h *Handler) members(c *gin.Context) {
 		})
 	}
 	httpx.OK(c, out)
+}
+
+func (h *Handler) setMemberRole(c *gin.Context) {
+	var in struct {
+		Role string `json:"role"`
+	}
+	if !httpx.Bind(c, &in) {
+		return
+	}
+	if in.Role != middleware.RoleChild && in.Role != middleware.RoleParent {
+		httpx.BadRequestT(c, "bad_request")
+		return
+	}
+	cl := middleware.ClaimsOf(c)
+	var fam models.Team
+	if err := h.app.DB.First(&fam, "id = ?", cl.TeamID).Error; err != nil {
+		httpx.NotFoundT(c, "team_not_found")
+		return
+	}
+	var member models.TeamMember
+	if err := h.app.DB.Where("user_id = ? AND team_id = ?", c.Param("id"), cl.TeamID).First(&member).Error; err != nil {
+		httpx.NotFoundT(c, "member_not_found")
+		return
+	}
+	if member.UserID == fam.OwnerID {
+		httpx.BadRequestT(c, "cannot_change_owner_role")
+		return
+	}
+	err := h.app.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.TeamMember{}).Where("user_id = ? AND team_id = ?", member.UserID, cl.TeamID).Update("role", in.Role).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.User{}).Where("id = ?", member.UserID).Update("role", in.Role).Error
+	})
+	if err != nil {
+		httpx.ErrT(c, 500, "save_failed")
+		return
+	}
+	httpx.OK(c, gin.H{"ok": true})
 }
 
 type inviteView struct {
