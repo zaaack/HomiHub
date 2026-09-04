@@ -13,6 +13,8 @@ single binary.
   `go-webdavp`, a parallel fork of `golang.org/x/net/webdav` with concurrent
   batch operations (COPY/MOVE/PROPFIND on large trees).
 - **Todos** — task lists, per-member sharing, tags, priority.
+- **Notes** — notes stored as VJOURNAL calendar objects, with note lists
+  (colors/icons/member sharing), tags, per-note sharing, and attachments.
 - **Team** — multi-member team with roles (parent/child), invite/join,
   multi-team switching, and member-scoped sharing of todo/note lists and
   individual items. See `docs/team.md`.
