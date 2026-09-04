@@ -373,23 +373,23 @@ export default function FilesPage() {
       )}
 
       {tab === 'attachments' && (
-        <div className="card mb-4 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <select className="select" value={attKind} onChange={(e) => setAttKind(e.target.value)}>
+        <div className="card mb-4 p-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <select className="select" style={{ width: 120 }} value={attKind} onChange={(e) => setAttKind(e.target.value)}>
               <option value="">{t('attachments.all')}</option>
               <option value="event">{t('attachments.event')}</option>
               <option value="note">{t('attachments.note')}</option>
               <option value="todo">{t('attachments.todo')}</option>
             </select>
-            <select className="select" value={attStatus} onChange={(e) => setAttStatus(e.target.value)}>
+            <select className="select" style={{ width: 120 }} value={attStatus} onChange={(e) => setAttStatus(e.target.value)}>
               <option value="">{t('attachments.all')}</option>
               <option value="true">{t('attachments.completed')}</option>
               <option value="false">{t('attachments.pending')}</option>
             </select>
-            <input type="date" className="input w-auto" value={attFrom} onChange={(e) => setAttFrom(e.target.value)} />
-            <input type="date" className="input w-auto" value={attTo} onChange={(e) => setAttTo(e.target.value)} />
-            <button className="btn-ghost" onClick={clearAttFilters}>
-              <X size={16} />
+            <input type="date" className="input" style={{ width: 148 }} value={attFrom} onChange={(e) => setAttFrom(e.target.value)} />
+            <input type="date" className="input" style={{ width: 148 }} value={attTo} onChange={(e) => setAttTo(e.target.value)} />
+            <button className="btn-ghost" style={{ padding: '0.35rem 0.6rem', fontSize: 13 }} onClick={clearAttFilters}>
+              <X size={14} />
               {t('common.reset')}
             </button>
           </div>
